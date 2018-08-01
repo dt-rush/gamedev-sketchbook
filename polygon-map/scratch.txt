@@ -1,0 +1,28 @@
+ascendPoint := wm.highestAwayFromSource(v, p, 2)
+				if ascendPoint == nil {
+					break
+				}
+				p_dx, p_dy, p_d := Distance(p, vertices[i])
+				if p_d < 1 {
+					p_d = 1
+				}
+				p_dx = 2 * p_dx / p_d
+				p_dy = 2 * p_dy / p_d
+				awayFromSource := PointDelta(vertices[i], int(p_dx), int(p_dx))
+				wm.moveToPointIfValidWater(&vertices[i], awayFromSource)
+
+				dx, dy, d := Distance(vertices[i], *ascendPoint)
+				if d < 1 {
+					d = 1
+				}
+				dx = 3 * dx / d
+				dy = 3 * dy / d
+				newVertex := PointDelta(vertices[i], int(dx), int(dy))
+				wm.moveToPointIfValidWater(&vertices[i], newVertex)
+
+				vertices[i] = newVertex
+				if wm.elevationAt(newVertex) < WATER_CUTOFF {
+					vertices[i] = newVertex
+				} else {
+					break
+				}
