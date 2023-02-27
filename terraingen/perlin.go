@@ -7,7 +7,7 @@ import (
 func PerlinNoiseInt2D(w int, h int, scale float64,
 	alpha float64, beta float64, n int, seed int64) [][]float64 {
 
-	p := perlin.NewPerlin(alpha, beta, n, seed)
+	p := perlin.NewPerlin(alpha, beta, int32(n), seed)
 	output := make([][]float64, h)
 	for y := 0; y < h; y++ {
 		output[y] = make([]float64, w)

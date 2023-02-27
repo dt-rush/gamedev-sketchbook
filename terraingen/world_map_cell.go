@@ -12,10 +12,10 @@ const (
 )
 
 var TERRAIN_COSTS = []int{
-	32,
+	100,
 	1,
 	1,
-	8,
+	40,
 }
 
 type WorldMapCell struct {
