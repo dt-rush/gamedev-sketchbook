@@ -310,6 +310,7 @@ func main() {
 	running = true
 	t0 := time.Now()
 	var dt_prepare_avg *float32 = nil
+	var dt_buffer_avg *float32 = nil
 	var dt_draw_avg *float32 = nil
 	handleKBEvent := func(ke *sdl.KeyboardEvent) {
 		if ke.Type == sdl.KEYDOWN {
@@ -356,12 +357,21 @@ func main() {
 			*dt_prepare_avg = (*dt_prepare_avg + dt_prepare) / 2.0
 		}
 
-		// draw
+		// buffer data
 		t2 := time.Now()
 		gl.BufferData(gl.ARRAY_BUFFER, gl.Sizeiptr(len(modelsFlat)*floatSz), gl.Pointer(&modelsFlat[0]), gl.STATIC_DRAW)
+		dt_buffer := float32(time.Since(t2).Nanoseconds()) / 1e6
+		if dt_buffer_avg == nil {
+			dt_buffer_avg = &dt_buffer
+		} else {
+			*dt_buffer_avg = (*dt_buffer_avg + dt_buffer) / 2.0
+		}
+
+		// draw
+		t3 := time.Now()
 		drawgl(verts, colors)
 		window.GLSwap()
-		dt_draw := float32(time.Since(t2).Nanoseconds()) / 1e6
+		dt_draw := float32(time.Since(t3).Nanoseconds()) / 1e6
 		if dt_draw_avg == nil {
 			dt_draw_avg = &dt_draw
 		} else {
@@ -370,6 +380,7 @@ func main() {
 		time.Sleep(50 * time.Millisecond)
 	}
 	fmt.Printf("avg prepare ms: %f\n", *dt_prepare_avg)
+	fmt.Printf("avg buffer ms: %f\n", *dt_buffer_avg)
 	fmt.Printf("avg draw ms: %f\n", *dt_draw_avg)
 }
 
