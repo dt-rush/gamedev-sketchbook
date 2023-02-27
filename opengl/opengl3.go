@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"runtime"
 	"strings"
 	"time"
@@ -180,6 +181,20 @@ func printLiteralMat4(name string, m mgl32.Mat4) {
 	fmt.Printf(");\n")
 }
 
+func buildModels(positions, rotations, scales []mgl32.Vec3) []mgl32.Mat4 {
+	models := make([]mgl32.Mat4, len(positions))
+	for i := 0; i < len(positions); i++ {
+		t := mgl32.Translate3D(positions[i][0], positions[i][1], positions[i][2])
+		r := mgl32.Ident4()
+		r = r.Mul4(mgl32.HomogRotate3D(rotations[i][0], mgl32.Vec3{1, 0, 0}))
+		r = r.Mul4(mgl32.HomogRotate3D(rotations[i][1], mgl32.Vec3{0, 1, 0}))
+		r = r.Mul4(mgl32.HomogRotate3D(rotations[i][2], mgl32.Vec3{0, 0, 1}))
+		s := mgl32.Scale3D(scales[i][0], scales[i][1], scales[i][2])
+		models[i] = t.Mul4(r.Mul4(s))
+	}
+	return models
+}
+
 func main() {
 	window, context := SDLInit()
 	defer sdl.Quit()
@@ -189,20 +204,17 @@ func main() {
 	glInit()
 
 	verts, colors := makeCube()
-	models := make([]mgl32.Mat4, 3*3)
+	positions := make([]mgl32.Vec3, 3*3)
+	rotations := make([]mgl32.Vec3, 3*3)
+	scales := make([]mgl32.Vec3, 3*3)
 	for i := 0; i < 3; i++ {
 		for j := 0; j < 3; j++ {
-			translation := mgl32.Translate3D(float32(-4+3*i), 0, float32(-4+3*j))
-			rotation := mgl32.HomogRotate3D(0, mgl32.Vec3{1, 0, 0})
+			ix := 3*i + j
+			positions[ix] = mgl32.Vec3{float32(-4 + 3*i), 0, float32(-4 + 3*j)}
+			rotations[ix] = mgl32.Vec3{0, 0, 0}
 			s := float32(1.0)
-			scale := mgl32.Scale3D(s, s, s)
-			model := translation.Mul4(rotation.Mul4(scale))
-			models[3*i+j] = model
+			scales[ix] = mgl32.Vec3{s, s, s}
 		}
-	}
-	modelsFlat := make([]float32, 3*3*4*4)
-	for m := 0; m < 3*3; m++ {
-		copy(modelsFlat[(m*16):], models[m][:])
 	}
 
 	var f gl.Float
@@ -217,8 +229,6 @@ func main() {
 	// INSTANCE MODEL BUFFER
 	var modelBuffer gl.Uint
 	gl.GenBuffers(1, &modelBuffer)
-	gl.BindBuffer(gl.ARRAY_BUFFER, modelBuffer)
-	gl.BufferData(gl.ARRAY_BUFFER, gl.Sizeiptr(len(modelsFlat)*floatSz), gl.Pointer(&modelsFlat[0]), gl.STATIC_DRAW)
 
 	// COLOUR BUFFER
 	var colourbuffer gl.Uint
@@ -285,6 +295,7 @@ func main() {
 	fmt.Println()
 	printLiteralMat4("projection", projection)
 	printLiteralMat4("view", view)
+	models := buildModels(positions, rotations, scales)
 	printLiteralMat4("model", models[0])
 
 	fmt.Println()
@@ -297,20 +308,69 @@ func main() {
 	var event sdl.Event
 	var running bool
 	running = true
+	t0 := time.Now()
+	var dt_prepare_avg *float32 = nil
+	var dt_draw_avg *float32 = nil
+	handleKBEvent := func(ke *sdl.KeyboardEvent) {
+		if ke.Type == sdl.KEYDOWN {
+			if ke.Keysym.Sym == sdl.K_q {
+				running = false
+			}
+		}
+	}
 	for running {
+		dt_ms := float32(time.Since(t0).Nanoseconds()) / 1e6
 		for event = sdl.PollEvent(); event != nil; event =
 			sdl.PollEvent() {
-			switch event.(type) {
+			switch e := event.(type) {
 			case *sdl.QuitEvent:
 				running = false
 			case *sdl.MouseMotionEvent:
 				// fmt.Printf("[%dms]MouseMotion\tid:%d\tx:%d\ty:%d\txrel:%d\tyrel:%d\n", t.Timestamp, t.Which, t.X, t.Y, t.XRel, t.YRel)
+			case *sdl.KeyboardEvent:
+				handleKBEvent(e)
 			}
 		}
+
+		// modify/prepare models
+		for i, m := range models {
+			rot := mgl32.HomogRotate3DY(0.05 * float32(i) / float32(len(models)))
+			models[i] = rot.Mul4(m)
+		}
+		gl.BindBuffer(gl.ARRAY_BUFFER, modelBuffer)
+		t1 := time.Now()
+		for i := 0; i < 3*3; i++ {
+			x := i % 3
+			rotations[i] = rotations[i].Add(mgl32.Vec3{0, 0.02, 0})
+			positions[i] = mgl32.Vec3{positions[i][0], float32(0.2 * math.Sin(float64(2*math.Pi*(float32(x)/6+dt_ms/3000.0)))), positions[i][2]}
+		}
+		models = buildModels(positions, rotations, scales)
+		modelsFlat := make([]float32, 3*3*4*4)
+		for m := 0; m < 3*3; m++ {
+			copy(modelsFlat[(m*16):], models[m][:])
+		}
+		dt_prepare := float32(time.Since(t1).Nanoseconds()) / 1e6
+		if dt_prepare_avg == nil {
+			dt_prepare_avg = &dt_prepare
+		} else {
+			*dt_prepare_avg = (*dt_prepare_avg + dt_prepare) / 2.0
+		}
+
+		// draw
+		t2 := time.Now()
+		gl.BufferData(gl.ARRAY_BUFFER, gl.Sizeiptr(len(modelsFlat)*floatSz), gl.Pointer(&modelsFlat[0]), gl.STATIC_DRAW)
 		drawgl(verts, colors)
 		window.GLSwap()
+		dt_draw := float32(time.Since(t2).Nanoseconds()) / 1e6
+		if dt_draw_avg == nil {
+			dt_draw_avg = &dt_draw
+		} else {
+			*dt_draw_avg = (*dt_draw_avg + dt_draw) / 2.0
+		}
 		time.Sleep(50 * time.Millisecond)
 	}
+	fmt.Printf("avg prepare ms: %f\n", *dt_prepare_avg)
+	fmt.Printf("avg draw ms: %f\n", *dt_draw_avg)
 }
 
 func drawgl(verts, colors []gl.Float) {
@@ -370,7 +430,7 @@ void main()
 	   	else if (x == 0 && y == 3) result = brightness > 01.0/17.0;
 
 		outColor = vec4(vec3(result), 1.0);
-		outColor = vec4(vec3(brightness), 1.0);
+		// outColor = vec4(vec3(brightness), 1.0);
 		// outColor = vec4(1.0);
 }
 `
