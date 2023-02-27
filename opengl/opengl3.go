@@ -233,35 +233,37 @@ func main() {
 	var VertexArrayID gl.Uint
 	gl.GenVertexArrays(1, &VertexArrayID)
 	gl.BindVertexArray(VertexArrayID)
-	gl.EnableVertexAttribArray(0)
+	vertLoc := gl.Uint(gl.GetAttribLocation(program, gl.GLString("vert")))
+	gl.EnableVertexAttribArray(vertLoc)
 	gl.BindBuffer(gl.ARRAY_BUFFER, vertexBuffer)
-	gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, 0, nil)
+	gl.VertexAttribPointer(vertLoc, 3, gl.FLOAT, gl.FALSE, 0, nil)
 
 	// VERTEX ARRAY HOOK COLOURS
-	gl.EnableVertexAttribArray(1)
+	colorLoc := gl.Uint(gl.GetAttribLocation(program, gl.GLString("color")))
+	gl.EnableVertexAttribArray(colorLoc)
 	gl.BindBuffer(gl.ARRAY_BUFFER, colourbuffer)
-	gl.VertexAttribPointer(1, 3, gl.FLOAT, gl.FALSE, 0, nil)
+	gl.VertexAttribPointer(colorLoc, 3, gl.FLOAT, gl.FALSE, 0, nil)
 
 	// VERTEX ARRAY HOOK MODELS
 	gl.BindBuffer(gl.ARRAY_BUFFER, modelBuffer)
-	modelPos := gl.Uint(2)
-	pos1 := modelPos + 0
-	pos2 := modelPos + 1
-	pos3 := modelPos + 2
-	pos4 := modelPos + 3
-	gl.EnableVertexAttribArray(pos1)
-	gl.EnableVertexAttribArray(pos2)
-	gl.EnableVertexAttribArray(pos3)
-	gl.EnableVertexAttribArray(pos4)
-	gl.VertexAttribPointer(pos1, 4, gl.FLOAT, gl.FALSE, gl.Sizei(floatSz*4*4), gl.Pointer(uintptr(0)))
-	gl.VertexAttribPointer(pos2, 4, gl.FLOAT, gl.FALSE, gl.Sizei(floatSz*4*4), gl.Pointer(uintptr(4*floatSz)))
-	gl.VertexAttribPointer(pos3, 4, gl.FLOAT, gl.FALSE, gl.Sizei(floatSz*4*4), gl.Pointer(uintptr(8*floatSz)))
-	gl.VertexAttribPointer(pos4, 4, gl.FLOAT, gl.FALSE, gl.Sizei(floatSz*4*4), gl.Pointer(uintptr(12*floatSz)))
+	modelLoc := gl.Uint(gl.GetAttribLocation(program, gl.GLString("model")))
+	loc1 := modelLoc + 0
+	loc2 := modelLoc + 1
+	loc3 := modelLoc + 2
+	loc4 := modelLoc + 3
+	gl.EnableVertexAttribArray(loc1)
+	gl.EnableVertexAttribArray(loc2)
+	gl.EnableVertexAttribArray(loc3)
+	gl.EnableVertexAttribArray(loc4)
+	gl.VertexAttribPointer(loc1, 4, gl.FLOAT, gl.FALSE, gl.Sizei(floatSz*4*4), gl.Pointer(uintptr(0)))
+	gl.VertexAttribPointer(loc2, 4, gl.FLOAT, gl.FALSE, gl.Sizei(floatSz*4*4), gl.Pointer(uintptr(4*floatSz)))
+	gl.VertexAttribPointer(loc3, 4, gl.FLOAT, gl.FALSE, gl.Sizei(floatSz*4*4), gl.Pointer(uintptr(8*floatSz)))
+	gl.VertexAttribPointer(loc4, 4, gl.FLOAT, gl.FALSE, gl.Sizei(floatSz*4*4), gl.Pointer(uintptr(12*floatSz)))
 	gl.BindBuffer(gl.ARRAY_BUFFER, vertexBuffer)
-	gl.VertexAttribDivisor(pos1, 1)
-	gl.VertexAttribDivisor(pos2, 1)
-	gl.VertexAttribDivisor(pos3, 1)
-	gl.VertexAttribDivisor(pos4, 1)
+	gl.VertexAttribDivisor(loc1, 1)
+	gl.VertexAttribDivisor(loc2, 1)
+	gl.VertexAttribDivisor(loc3, 1)
+	gl.VertexAttribDivisor(loc4, 1)
 
 	// USE PROGRAM
 	gl.UseProgram(program)
@@ -323,7 +325,7 @@ const (
 	vertexShaderSource = `
 #version 330
 layout (location = 0) in vec3 vert;
-layout(location = 1) in vec3 vertexColor;
+layout(location = 1) in vec3 color;
 layout(location = 2) in mat4 model;
 uniform mat4 projection;
 uniform mat4 view;
@@ -331,7 +333,7 @@ out vec3 fragmentColor;
 void main()
 {
     gl_Position = projection *  view * model * vec4(vert, 1);
-    fragmentColor = vertexColor;
+    fragmentColor = color;
 }
 `
 	fragmentShaderSource = `
