@@ -234,6 +234,7 @@ func main() {
 	gl.BufferData(gl.ARRAY_BUFFER, gl.Sizeiptr(len(verts)*floatSz), gl.Pointer(&verts[0]), gl.STATIC_DRAW)
 
 	// INSTANCE MODEL BUFFER
+	// (note: BufferData() for this occurs in the loop after we update the models)
 	var modelBuffer gl.Uint
 	gl.GenBuffers(1, &modelBuffer)
 
@@ -329,6 +330,7 @@ func main() {
 			}
 		}
 	}
+	var mouseY int32
 	for running {
 		dt_ms := float32(time.Since(t0).Nanoseconds()) / 1e6
 		for event = sdl.PollEvent(); event != nil; event =
@@ -338,6 +340,10 @@ func main() {
 				running = false
 			case *sdl.MouseMotionEvent:
 				// fmt.Printf("[%dms]MouseMotion\tid:%d\tx:%d\ty:%d\txrel:%d\tyrel:%d\n", t.Timestamp, t.Which, t.X, t.Y, t.XRel, t.YRel)
+				mouseY = winHeight - e.Y
+				// if you reset mouseY to zero whenever there hasn't been a mouseevent in x ms for very small x, you
+				// get a detector for smooth continuous motion that snaps to zero - great as a mechanic for a meditation
+				// mode
 			case *sdl.KeyboardEvent:
 				handleKBEvent(e)
 			}
@@ -352,8 +358,9 @@ func main() {
 		t1 := time.Now()
 		for i := 0; i < N_CUBES; i++ {
 			x := i % N_CUBES
-			rotations[i] = rotations[i].Add(mgl32.Vec3{0, 0.02, 0})
-			positions[i] = mgl32.Vec3{positions[i][0], float32(0.2 * math.Sin(float64(2*math.Pi*(float32(x)/6+dt_ms/3000.0)))), positions[i][2]}
+			rotations[i] = rotations[i].Add(mgl32.Vec3{0, 0.01, 0})
+			yAmplitude := float32(mouseY) / float32(winHeight)
+			positions[i] = mgl32.Vec3{positions[i][0], yAmplitude * float32(0.1*math.Sin(float64(2*math.Pi*(float32(x)/6+dt_ms/1000.0)))), positions[i][2]}
 		}
 		models = buildModels(positions, rotations, scales)
 		modelsFlat := make([]float32, N_CUBES*4*4)
@@ -422,7 +429,7 @@ void main()
 #version 330
 
 #define BYPASS 0
-#define PIXEL_SIZE 1.0
+#define PIXEL_SIZE 3.0
 out vec4 outColor;
 in vec3 fragmentColor;
 
@@ -456,7 +463,7 @@ void main()
 		else if (x == 0 && y == 3) result = brightness > 01.0/17.0;
 
 		vec3 onOff = vec3(result);
-		outColor = vec4(mix(onOff, fragmentColor, 0.3), 1.0);
+		outColor = vec4(mix(onOff, fragmentColor, 0.5), 1.0);
 	} else if (BYPASS == 1) {
 		outColor = vec4(vec3(brightness), 1.0);
 	} else if (BYPASS == 2) {
