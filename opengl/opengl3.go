@@ -72,7 +72,7 @@ func makeCube() (verts, colors []gl.Float) {
 			colors[i+2] = 1.0
 		} else {
 			colors[i] = 0.1
-			colors[i+1] = 0.1
+			colors[i+1] = 1.0
 			colors[i+2] = 0.1
 		}
 	}
@@ -195,6 +195,9 @@ func buildModels(positions, rotations, scales []mgl32.Vec3) []mgl32.Mat4 {
 	return models
 }
 
+const CUBE_DIM = 7
+const N_CUBES = CUBE_DIM * CUBE_DIM
+
 func main() {
 	window, context := SDLInit()
 	defer sdl.Quit()
@@ -204,15 +207,19 @@ func main() {
 	glInit()
 
 	verts, colors := makeCube()
-	positions := make([]mgl32.Vec3, 3*3)
-	rotations := make([]mgl32.Vec3, 3*3)
-	scales := make([]mgl32.Vec3, 3*3)
-	for i := 0; i < 3; i++ {
-		for j := 0; j < 3; j++ {
-			ix := 3*i + j
-			positions[ix] = mgl32.Vec3{float32(-4 + 3*i), 0, float32(-4 + 3*j)}
+
+	positions := make([]mgl32.Vec3, N_CUBES)
+	rotations := make([]mgl32.Vec3, N_CUBES)
+	scales := make([]mgl32.Vec3, N_CUBES)
+	for i := 0; i < CUBE_DIM; i++ {
+		for j := 0; j < CUBE_DIM; j++ {
+			ix := CUBE_DIM*i + j
+			positions[ix] = mgl32.Vec3{
+				float32(-CUBE_DIM/2 + i),
+				0,
+				float32(-CUBE_DIM/2 + j)}
 			rotations[ix] = mgl32.Vec3{0, 0, 0}
-			s := float32(1.0)
+			s := float32(0.333)
 			scales[ix] = mgl32.Vec3{s, s, s}
 		}
 	}
@@ -287,7 +294,10 @@ func main() {
 	fmt.Printf("view uniform location: %d\n", uniView)
 
 	projection := mgl32.Perspective(mgl32.DegToRad(45.0), float32(winWidth)/winHeight, 0.1, 100.0)
-	eye := mgl32.Vec3{6, 6, 8}
+	eye := mgl32.Vec3{0, CUBE_DIM, 2 * CUBE_DIM}
+	zoomOut := float32(0.6)
+	eyeBack := mgl32.Scale3D(zoomOut, zoomOut, zoomOut).Mul4x1(mgl32.Vec4{eye[0], eye[1], eye[2], 1})
+	eye = mgl32.Vec3{eyeBack[0], eyeBack[1], eyeBack[2]}
 	target := mgl32.Vec3{0, 0, 0}
 	up := mgl32.Vec3{0, 1, 0}
 	view := mgl32.LookAtV(eye, target, up)
@@ -340,14 +350,14 @@ func main() {
 		}
 		gl.BindBuffer(gl.ARRAY_BUFFER, modelBuffer)
 		t1 := time.Now()
-		for i := 0; i < 3*3; i++ {
-			x := i % 3
+		for i := 0; i < N_CUBES; i++ {
+			x := i % N_CUBES
 			rotations[i] = rotations[i].Add(mgl32.Vec3{0, 0.02, 0})
 			positions[i] = mgl32.Vec3{positions[i][0], float32(0.2 * math.Sin(float64(2*math.Pi*(float32(x)/6+dt_ms/3000.0)))), positions[i][2]}
 		}
 		models = buildModels(positions, rotations, scales)
-		modelsFlat := make([]float32, 3*3*4*4)
-		for m := 0; m < 3*3; m++ {
+		modelsFlat := make([]float32, N_CUBES*4*4)
+		for m := 0; m < N_CUBES; m++ {
 			copy(modelsFlat[(m*16):], models[m][:])
 		}
 		dt_prepare := float32(time.Since(t1).Nanoseconds()) / 1e6
@@ -386,7 +396,7 @@ func main() {
 
 func drawgl(verts, colors []gl.Float) {
 	gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
-	gl.DrawArraysInstanced(gl.TRIANGLES, gl.Int(0), gl.Sizei(len(verts)*4), 3*3)
+	gl.DrawArraysInstanced(gl.TRIANGLES, gl.Int(0), gl.Sizei(len(verts)*4), N_CUBES)
 }
 
 const (
@@ -411,38 +421,47 @@ void main()
 
 #version 330
 
-#define PIXEL_SIZE 1.5
+#define BYPASS 0
+#define PIXEL_SIZE 1.0
 out vec4 outColor;
 in vec3 fragmentColor;
+
 void main()
 {
-	vec2 xy = gl_FragCoord.xy;
 	float brightness = (fragmentColor.r + fragmentColor.g + fragmentColor.b) / 3;
-	vec2 pixel = mod(xy/PIXEL_SIZE, 4.0);
+	if (BYPASS == 0) {
+
+		vec2 xy = gl_FragCoord.xy;
+		vec2 pixel = mod(xy/PIXEL_SIZE, 4.0);
 
 		int x = int(pixel.x);
-	    int y = int(pixel.y);
-		bool result = false;
-	    if (x == 0 && y == 0) result = brightness > 16.0/17.0;
-	   	else if (x == 2 && y == 2) result = brightness > 15.0/17.0;
-	   	else if (x == 2 && y == 0) result = brightness > 14.0/17.0;
-	   	else if (x == 0 && y == 2) result = brightness > 13.0/17.0;
-	   	else if (x == 1 && y == 1) result = brightness > 12.0/17.0;
-	   	else if (x == 3 && y == 3) result = brightness > 11.0/17.0;
-	   	else if (x == 3 && y == 1) result = brightness > 10.0/17.0;
-	   	else if (x == 1 && y == 3) result = brightness > 09.0/17.0;
-	   	else if (x == 1 && y == 0) result = brightness > 08.0/17.0;
-	   	else if (x == 3 && y == 2) result = brightness > 07.0/17.0;
-	   	else if (x == 3 && y == 0) result = brightness > 06.0/17.0;
-	    else if (x == 0 && y == 1) result =	brightness > 05.0/17.0;
-	   	else if (x == 1 && y == 2) result = brightness > 04.0/17.0;
-	   	else if (x == 2 && y == 3) result = brightness > 03.0/17.0;
-	   	else if (x == 2 && y == 1) result = brightness > 02.0/17.0;
-	   	else if (x == 0 && y == 3) result = brightness > 01.0/17.0;
+		int y = int(pixel.y);
 
-		outColor = vec4(vec3(result), 1.0);
-		// outColor = vec4(vec3(brightness), 1.0);
-		// outColor = vec4(1.0);
+		bool result = false;
+		if (x == 0 && y == 0) result = brightness > 16.0/17.0;
+		else if (x == 2 && y == 2) result = brightness > 15.0/17.0;
+		else if (x == 2 && y == 0) result = brightness > 14.0/17.0;
+		else if (x == 0 && y == 2) result = brightness > 13.0/17.0;
+		else if (x == 1 && y == 1) result = brightness > 12.0/17.0;
+		else if (x == 3 && y == 3) result = brightness > 11.0/17.0;
+		else if (x == 3 && y == 1) result = brightness > 10.0/17.0;
+		else if (x == 1 && y == 3) result = brightness > 09.0/17.0;
+		else if (x == 1 && y == 0) result = brightness > 08.0/17.0;
+		else if (x == 3 && y == 2) result = brightness > 07.0/17.0;
+		else if (x == 3 && y == 0) result = brightness > 06.0/17.0;
+		else if (x == 0 && y == 1) result =	brightness > 05.0/17.0;
+		else if (x == 1 && y == 2) result = brightness > 04.0/17.0;
+		else if (x == 2 && y == 3) result = brightness > 03.0/17.0;
+		else if (x == 2 && y == 1) result = brightness > 02.0/17.0;
+		else if (x == 0 && y == 3) result = brightness > 01.0/17.0;
+
+		vec3 onOff = vec3(result);
+		outColor = vec4(mix(onOff, fragmentColor, 0.3), 1.0);
+	} else if (BYPASS == 1) {
+		outColor = vec4(vec3(brightness), 1.0);
+	} else if (BYPASS == 2) {
+		outColor = vec4(1.0);
+	}
 }
 `
 )
