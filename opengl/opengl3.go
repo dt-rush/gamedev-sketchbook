@@ -286,6 +286,10 @@ func main() {
 	// USE PROGRAM
 	gl.UseProgram(program)
 
+	// ALIVENESS UNIFORM (used in fragment shader to saturate colour)
+	uniAlivenessString := gl.GLString("aliveness")
+	uniAliveness := gl.GetUniformLocation(program, uniAlivenessString)
+
 	// PROJECTION,VIEW UNIFORMS
 	uniProjectionString := gl.GLString("projection")
 	uniProjection := gl.GetUniformLocation(program, uniProjectionString)
@@ -330,7 +334,7 @@ func main() {
 			}
 		}
 	}
-	var mouseY int32
+	var aliveness float32
 	for running {
 		dt_ms := float32(time.Since(t0).Nanoseconds()) / 1e6
 		for event = sdl.PollEvent(); event != nil; event =
@@ -340,7 +344,14 @@ func main() {
 				running = false
 			case *sdl.MouseMotionEvent:
 				// fmt.Printf("[%dms]MouseMotion\tid:%d\tx:%d\ty:%d\txrel:%d\tyrel:%d\n", t.Timestamp, t.Which, t.X, t.Y, t.XRel, t.YRel)
-				mouseY = winHeight - e.Y
+				xCenter := -1.0 + 2*float64(e.X)/float64(winWidth)
+				yCenter := -1.0 + 2*float64(e.Y)/float64(winHeight)
+				// distance from midpoint of screen
+				r := math.Sqrt((xCenter * xCenter) + (yCenter * yCenter))
+				// normal distribution
+				sd := 0.1
+				aliveness = float32(math.Exp(-(r*r)/(2*sd))/(sd*math.Sqrt(2*math.Pi))) / 3
+				fmt.Println(aliveness)
 				// if you reset mouseY to zero whenever there hasn't been a mouseevent in x ms for very small x, you
 				// get a detector for smooth continuous motion that snaps to zero - great as a mechanic for a meditation
 				// mode
@@ -359,7 +370,7 @@ func main() {
 		for i := 0; i < N_CUBES; i++ {
 			x := i % N_CUBES
 			rotations[i] = rotations[i].Add(mgl32.Vec3{0, 0.01, 0})
-			yAmplitude := float32(mouseY) / float32(winHeight)
+			yAmplitude := aliveness
 			positions[i] = mgl32.Vec3{positions[i][0], yAmplitude * float32(0.1*math.Sin(float64(2*math.Pi*(float32(x)/6+dt_ms/1000.0)))), positions[i][2]}
 		}
 		models = buildModels(positions, rotations, scales)
@@ -377,6 +388,7 @@ func main() {
 		// buffer data
 		t2 := time.Now()
 		gl.BufferData(gl.ARRAY_BUFFER, gl.Sizeiptr(len(modelsFlat)*floatSz), gl.Pointer(&modelsFlat[0]), gl.STATIC_DRAW)
+		gl.Uniform1f(uniAliveness, gl.Float(aliveness))
 		dt_buffer := float32(time.Since(t2).Nanoseconds()) / 1e6
 		if dt_buffer_avg == nil {
 			dt_buffer_avg = &dt_buffer
@@ -432,6 +444,7 @@ void main()
 #define PIXEL_SIZE 3.0
 out vec4 outColor;
 in vec3 fragmentColor;
+uniform float aliveness;
 
 void main()
 {
@@ -463,7 +476,7 @@ void main()
 		else if (x == 0 && y == 3) result = brightness > 01.0/17.0;
 
 		vec3 onOff = vec3(result);
-		outColor = vec4(mix(onOff, fragmentColor, 0.5), 1.0);
+		outColor = vec4(mix(onOff, fragmentColor, clamp(aliveness/5, 0, 1)), 1.0);
 	} else if (BYPASS == 1) {
 		outColor = vec4(vec3(brightness), 1.0);
 	} else if (BYPASS == 2) {
