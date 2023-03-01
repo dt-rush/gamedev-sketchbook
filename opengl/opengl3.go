@@ -142,7 +142,7 @@ func buildModels(positions, rotations, scales []mgl.Vec3) []mgl.Mat4 {
 	return models
 }
 
-const INSTANCE_DIM = 1
+const INSTANCE_DIM = 3
 const N_INSTANCES = INSTANCE_DIM * INSTANCE_DIM
 
 func main() {
@@ -165,9 +165,9 @@ func main() {
 		for j := 0; j < INSTANCE_DIM; j++ {
 			ix := INSTANCE_DIM*i + j
 			positions[ix] = mgl.Vec3{
-				float32(-INSTANCE_DIM/2 + i),
+				2 * float32(-INSTANCE_DIM/2+i),
 				0,
-				float32(-INSTANCE_DIM/2 + j)}
+				2 * float32(-INSTANCE_DIM/2+j)}
 			rotations[ix] = mgl.Vec3{0, 0, 0}
 			s := float32(0.333)
 			scales[ix] = mgl.Vec3{s, s, s}
@@ -383,7 +383,7 @@ func main() {
 
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 		// gl.FrontFace(gl.CW)
-		gl.DrawElementsInstanced(gl.TRIANGLES, gl.Sizei(len(indices)*intSz), gl.UNSIGNED_INT, gl.Pointer(&indices[0]), N_INSTANCES)
+		gl.DrawElementsInstanced(gl.TRIANGLES, gl.Sizei(len(indices)), gl.UNSIGNED_INT, gl.Pointer(&indices[0]), N_INSTANCES)
 
 		drawDone := false
 		for !drawDone {
