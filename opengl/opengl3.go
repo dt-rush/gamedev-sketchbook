@@ -9,75 +9,14 @@ import (
 	"unsafe"
 
 	gl "github.com/chsc/gogl/gl43"
-	"github.com/go-gl/mathgl/mgl32"
+	mgl "github.com/go-gl/mathgl/mgl32"
 	"github.com/veandco/go-sdl2/sdl"
 )
 
-func makeCube() (verts, colors []gl.Float) {
-	verts = []gl.Float{
-		-1.0, -1.0, -1.0,
-		-1.0, -1.0, 1.0,
-		-1.0, 1.0, 1.0,
-
-		1.0, 1.0, -1.0,
-		-1.0, -1.0, -1.0,
-		-1.0, 1.0, -1.0,
-
-		1.0, -1.0, 1.0,
-		-1.0, -1.0, -1.0,
-		1.0, -1.0, -1.0,
-
-		1.0, 1.0, -1.0,
-		1.0, -1.0, -1.0,
-		-1.0, -1.0, -1.0,
-
-		-1.0, -1.0, -1.0,
-		-1.0, 1.0, 1.0,
-		-1.0, 1.0, -1.0,
-
-		1.0, -1.0, 1.0,
-		-1.0, -1.0, 1.0,
-		-1.0, -1.0, -1.0,
-
-		-1.0, 1.0, 1.0,
-		-1.0, -1.0, 1.0,
-		1.0, -1.0, 1.0,
-
-		1.0, 1.0, 1.0,
-		1.0, -1.0, -1.0,
-		1.0, 1.0, -1.0,
-
-		1.0, -1.0, -1.0,
-		1.0, 1.0, 1.0,
-		1.0, -1.0, 1.0,
-
-		1.0, 1.0, 1.0,
-		1.0, 1.0, -1.0,
-		-1.0, 1.0, -1.0,
-
-		1.0, 1.0, 1.0,
-		-1.0, 1.0, -1.0,
-		-1.0, 1.0, 1.0,
-
-		1.0, 1.0, 1.0,
-		-1.0, 1.0, 1.0,
-		1.0, -1.0, 1.0,
-	}
-	colors = make([]gl.Float, len(verts))
-	for i := 0; i < len(verts); i += 3 {
-		y := verts[i+1]
-		if y == -1.0 {
-			colors[i] = 1.0
-			colors[i+1] = 1.0
-			colors[i+2] = 1.0
-		} else {
-			colors[i] = 0.1
-			colors[i+1] = 1.0
-			colors[i+2] = 0.1
-		}
-	}
-	return verts, colors
-}
+var f gl.Float
+var floatSz int = int(unsafe.Sizeof(f))
+var i gl.Uint
+var intSz int = int(unsafe.Sizeof(i))
 
 func logShaderCompileError(s gl.Uint) {
 	var logLength gl.Int
@@ -138,6 +77,14 @@ func glInit() {
 	gl.DepthFunc(gl.LESS)
 	gl.Enable(gl.BLEND)
 	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+
+	// DEBUG callback
+	debugCallback := func(source uint32, gltype uint32, id uint32, severity uint32, length int32, message string, userParam unsafe.Pointer) {
+		fmt.Printf("OpenGL Error: %v\n", message)
+	}
+	gl.Enable(gl.DEBUG_OUTPUT)
+	gl.DebugMessageCallback(gl.Pointer(unsafe.Pointer(&debugCallback)), gl.Pointer(nil))
+
 }
 
 func SDLInit() (window *sdl.Window, context sdl.GLContext) {
@@ -160,7 +107,7 @@ func SDLInit() (window *sdl.Window, context sdl.GLContext) {
 	return window, context
 }
 
-func printLiteralMat4(name string, m mgl32.Mat4) {
+func printLiteralMat4(name string, m mgl.Mat4) {
 	for i := 0; i < 4; i++ {
 		fmt.Printf("vec4 %s%d = vec4(", name, i)
 		for j := 0; j < 4; j++ {
@@ -181,24 +128,25 @@ func printLiteralMat4(name string, m mgl32.Mat4) {
 	fmt.Printf(");\n")
 }
 
-func buildModels(positions, rotations, scales []mgl32.Vec3) []mgl32.Mat4 {
-	models := make([]mgl32.Mat4, len(positions))
+func buildModels(positions, rotations, scales []mgl.Vec3) []mgl.Mat4 {
+	models := make([]mgl.Mat4, len(positions))
 	for i := 0; i < len(positions); i++ {
-		t := mgl32.Translate3D(positions[i][0], positions[i][1], positions[i][2])
-		r := mgl32.Ident4()
-		r = r.Mul4(mgl32.HomogRotate3D(rotations[i][0], mgl32.Vec3{1, 0, 0}))
-		r = r.Mul4(mgl32.HomogRotate3D(rotations[i][1], mgl32.Vec3{0, 1, 0}))
-		r = r.Mul4(mgl32.HomogRotate3D(rotations[i][2], mgl32.Vec3{0, 0, 1}))
-		s := mgl32.Scale3D(scales[i][0], scales[i][1], scales[i][2])
+		t := mgl.Translate3D(positions[i][0], positions[i][1], positions[i][2])
+		r := mgl.Ident4()
+		r = r.Mul4(mgl.HomogRotate3D(rotations[i][0], mgl.Vec3{1, 0, 0}))
+		r = r.Mul4(mgl.HomogRotate3D(rotations[i][1], mgl.Vec3{0, 1, 0}))
+		r = r.Mul4(mgl.HomogRotate3D(rotations[i][2], mgl.Vec3{0, 0, 1}))
+		s := mgl.Scale3D(scales[i][0], scales[i][1], scales[i][2])
 		models[i] = t.Mul4(r.Mul4(s))
 	}
 	return models
 }
 
-const CUBE_DIM = 7
-const N_CUBES = CUBE_DIM * CUBE_DIM
+const INSTANCE_DIM = 1
+const N_INSTANCES = INSTANCE_DIM * INSTANCE_DIM
 
 func main() {
+
 	window, context := SDLInit()
 	defer sdl.Quit()
 	defer window.Destroy()
@@ -206,26 +154,28 @@ func main() {
 
 	glInit()
 
-	verts, colors := makeCube()
+	// load model
+	verts, indices := LoadObjVerts("amitabha_small.obj")
 
-	positions := make([]mgl32.Vec3, N_CUBES)
-	rotations := make([]mgl32.Vec3, N_CUBES)
-	scales := make([]mgl32.Vec3, N_CUBES)
-	for i := 0; i < CUBE_DIM; i++ {
-		for j := 0; j < CUBE_DIM; j++ {
-			ix := CUBE_DIM*i + j
-			positions[ix] = mgl32.Vec3{
-				float32(-CUBE_DIM/2 + i),
+	// set up transforms for each instance
+	positions := make([]mgl.Vec3, N_INSTANCES)
+	rotations := make([]mgl.Vec3, N_INSTANCES)
+	scales := make([]mgl.Vec3, N_INSTANCES)
+	for i := 0; i < INSTANCE_DIM; i++ {
+		for j := 0; j < INSTANCE_DIM; j++ {
+			ix := INSTANCE_DIM*i + j
+			positions[ix] = mgl.Vec3{
+				float32(-INSTANCE_DIM/2 + i),
 				0,
-				float32(-CUBE_DIM/2 + j)}
-			rotations[ix] = mgl32.Vec3{0, 0, 0}
+				float32(-INSTANCE_DIM/2 + j)}
+			rotations[ix] = mgl.Vec3{0, 0, 0}
 			s := float32(0.333)
-			scales[ix] = mgl32.Vec3{s, s, s}
+			scales[ix] = mgl.Vec3{s, s, s}
 		}
 	}
 
-	var f gl.Float
-	floatSz := int(unsafe.Sizeof(f))
+	fmt.Printf("%d bytes of vert data\n", floatSz*len(verts))
+	fmt.Printf("%d bytes of index data\n", intSz*len(indices))
 
 	// VERTEX BUFFER
 	var vertexBuffer gl.Uint
@@ -233,16 +183,24 @@ func main() {
 	gl.BindBuffer(gl.ARRAY_BUFFER, vertexBuffer)
 	gl.BufferData(gl.ARRAY_BUFFER, gl.Sizeiptr(len(verts)*floatSz), gl.Pointer(&verts[0]), gl.STATIC_DRAW)
 
+	// INDEX BUFFER
+	var indexBuffer gl.Uint
+	gl.GenBuffers(1, &indexBuffer)
+	gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer)
+	gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, gl.Sizeiptr(len(indices)*intSz), gl.Pointer(&indices[0]), gl.STATIC_DRAW)
+
 	// INSTANCE MODEL BUFFER
 	// (note: BufferData() for this occurs in the loop after we update the models)
 	var modelBuffer gl.Uint
 	gl.GenBuffers(1, &modelBuffer)
 
-	// COLOUR BUFFER
-	var colourbuffer gl.Uint
-	gl.GenBuffers(1, &colourbuffer)
-	gl.BindBuffer(gl.ARRAY_BUFFER, colourbuffer)
-	gl.BufferData(gl.ARRAY_BUFFER, gl.Sizeiptr(len(colors)*floatSz), gl.Pointer(&colors[0]), gl.STATIC_DRAW)
+	/*
+		// COLOUR BUFFER
+		var colourbuffer gl.Uint
+		gl.GenBuffers(1, &colourbuffer)
+		gl.BindBuffer(gl.ARRAY_BUFFER, colourbuffer)
+		gl.BufferData(gl.ARRAY_BUFFER, gl.Sizeiptr(len(colors)*floatSz), gl.Pointer(&colors[0]), gl.STATIC_DRAW)
+	*/
 
 	// GUESS WHAT
 	program := createprogram()
@@ -256,11 +214,13 @@ func main() {
 	gl.BindBuffer(gl.ARRAY_BUFFER, vertexBuffer)
 	gl.VertexAttribPointer(vertLoc, 3, gl.FLOAT, gl.FALSE, 0, nil)
 
-	// VERTEX ARRAY HOOK COLOURS
-	colorLoc := gl.Uint(gl.GetAttribLocation(program, gl.GLString("color")))
-	gl.EnableVertexAttribArray(colorLoc)
-	gl.BindBuffer(gl.ARRAY_BUFFER, colourbuffer)
-	gl.VertexAttribPointer(colorLoc, 3, gl.FLOAT, gl.FALSE, 0, nil)
+	/*
+		// VERTEX ARRAY HOOK COLOURS
+		colorLoc := gl.Uint(gl.GetAttribLocation(program, gl.GLString("color")))
+		gl.EnableVertexAttribArray(colorLoc)
+		gl.BindBuffer(gl.ARRAY_BUFFER, colourbuffer)
+		gl.VertexAttribPointer(colorLoc, 3, gl.FLOAT, gl.FALSE, 0, nil)
+	*/
 
 	// VERTEX ARRAY HOOK MODELS
 	gl.BindBuffer(gl.ARRAY_BUFFER, modelBuffer)
@@ -298,14 +258,15 @@ func main() {
 	uniView := gl.GetUniformLocation(program, uniViewString)
 	fmt.Printf("view uniform location: %d\n", uniView)
 
-	projection := mgl32.Perspective(mgl32.DegToRad(45.0), float32(winWidth)/winHeight, 0.1, 100.0)
-	eye := mgl32.Vec3{0, CUBE_DIM, 2 * CUBE_DIM}
+	projection := mgl.Perspective(mgl.DegToRad(45.0), float32(winWidth)/winHeight, 0.1, 500.0)
+	eye := mgl.Vec3{0, INSTANCE_DIM + 3, 3 + 2*INSTANCE_DIM}
+	fmt.Println(eye)
 	zoomOut := float32(0.6)
-	eyeBack := mgl32.Scale3D(zoomOut, zoomOut, zoomOut).Mul4x1(mgl32.Vec4{eye[0], eye[1], eye[2], 1})
-	eye = mgl32.Vec3{eyeBack[0], eyeBack[1], eyeBack[2]}
-	target := mgl32.Vec3{0, 0, 0}
-	up := mgl32.Vec3{0, 1, 0}
-	view := mgl32.LookAtV(eye, target, up)
+	eyeBack := mgl.Scale3D(zoomOut, zoomOut, zoomOut).Mul4x1(mgl.Vec4{eye[0], eye[1], eye[2], 1})
+	eye = mgl.Vec3{eyeBack[0], eyeBack[1], eyeBack[2]}
+	target := mgl.Vec3{0, 0, 0}
+	up := mgl.Vec3{0, 1, 0}
+	view := mgl.LookAtV(eye, target, up)
 
 	fmt.Println()
 	printLiteralMat4("projection", projection)
@@ -334,6 +295,12 @@ func main() {
 			}
 		}
 	}
+
+	// used to wait for GPU if it's not done yet
+	syncFence := gl.FenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)
+
+	var xCenter float32
+	var yCenter float32
 	var aliveness float32
 	for running {
 		dt_ms := float32(time.Since(t0).Nanoseconds()) / 1e6
@@ -344,14 +311,13 @@ func main() {
 				running = false
 			case *sdl.MouseMotionEvent:
 				// fmt.Printf("[%dms]MouseMotion\tid:%d\tx:%d\ty:%d\txrel:%d\tyrel:%d\n", t.Timestamp, t.Which, t.X, t.Y, t.XRel, t.YRel)
-				xCenter := -1.0 + 2*float64(e.X)/float64(winWidth)
-				yCenter := -1.0 + 2*float64(e.Y)/float64(winHeight)
+				xCenter = -1.0 + 2*float32(e.X)/float32(winWidth)
+				yCenter = -1.0 + 2*float32(e.Y)/float32(winHeight)
 				// distance from midpoint of screen
-				r := math.Sqrt((xCenter * xCenter) + (yCenter * yCenter))
+				r := math.Sqrt(float64((xCenter * xCenter) + (yCenter * yCenter)))
 				// normal distribution
 				sd := 0.1
 				aliveness = float32(math.Exp(-(r*r)/(2*sd))/(sd*math.Sqrt(2*math.Pi))) / 3
-				fmt.Println(aliveness)
 				// if you reset mouseY to zero whenever there hasn't been a mouseevent in x ms for very small x, you
 				// get a detector for smooth continuous motion that snaps to zero - great as a mechanic for a meditation
 				// mode
@@ -362,21 +328,23 @@ func main() {
 
 		// modify/prepare models
 		for i, m := range models {
-			rot := mgl32.HomogRotate3DY(0.05 * float32(i) / float32(len(models)))
+			rot := mgl.HomogRotate3DY(0.05 * float32(i) / float32(len(models)))
 			models[i] = rot.Mul4(m)
 		}
 		gl.BindBuffer(gl.ARRAY_BUFFER, modelBuffer)
 		t1 := time.Now()
-		for i := 0; i < N_CUBES; i++ {
-			x := i % N_CUBES
-			rotations[i] = rotations[i].Add(mgl32.Vec3{0, 0.01, 0})
-			yAmplitude := aliveness
-			positions[i] = mgl32.Vec3{positions[i][0], yAmplitude * float32(0.1*math.Sin(float64(2*math.Pi*(float32(x)/6+dt_ms/1000.0)))), positions[i][2]}
+		for i := 0; i < N_INSTANCES; i++ {
+			x := i % N_INSTANCES
+			// rotations[i] = rotations[i].Add(mgl.Vec3{0, 0.01, 0})
+			rotations[i] = mgl.Vec3{0, 2 * math.Pi * xCenter, 0}
+			// yAmplitude := float32(math.Log(N_INSTANCES+1)) * aliveness
+			yAmplitude := float32(0.0)
+			positions[i] = mgl.Vec3{positions[i][0], yAmplitude * float32(0.1*math.Sin(float64(2*math.Pi*(float32(x)/(INSTANCE_DIM/3.0)+dt_ms/1000.0)))), positions[i][2]}
 		}
 		models = buildModels(positions, rotations, scales)
-		modelsFlat := make([]float32, N_CUBES*4*4)
-		for m := 0; m < N_CUBES; m++ {
-			copy(modelsFlat[(m*16):], models[m][:])
+		modelsFlat := make([]float32, N_INSTANCES*4*4)
+		for m := 0; m < N_INSTANCES; m++ {
+			copy(modelsFlat[(m*4*4):], models[m][:])
 		}
 		dt_prepare := float32(time.Since(t1).Nanoseconds()) / 1e6
 		if dt_prepare_avg == nil {
@@ -389,6 +357,20 @@ func main() {
 		t2 := time.Now()
 		gl.BufferData(gl.ARRAY_BUFFER, gl.Sizeiptr(len(modelsFlat)*floatSz), gl.Pointer(&modelsFlat[0]), gl.STATIC_DRAW)
 		gl.Uniform1f(uniAliveness, gl.Float(aliveness))
+		bufferDone := false
+		for !bufferDone {
+			bufferWaitResult := gl.ClientWaitSync(syncFence, gl.SYNC_FLUSH_COMMANDS_BIT, 5000)
+			switch bufferWaitResult {
+			case gl.ALREADY_SIGNALED:
+				bufferDone = true
+			case gl.CONDITION_SATISFIED:
+				bufferDone = true
+			case gl.TIMEOUT_EXPIRED:
+				fmt.Println("buffer data waitsync reached timeout. retrying.")
+			case gl.WAIT_FAILED:
+				panic("gl.WAIT_FAILED in ClientWaitSync for BufferData. Should never happen!")
+			}
+		}
 		dt_buffer := float32(time.Since(t2).Nanoseconds()) / 1e6
 		if dt_buffer_avg == nil {
 			dt_buffer_avg = &dt_buffer
@@ -398,7 +380,25 @@ func main() {
 
 		// draw
 		t3 := time.Now()
-		drawgl(verts, colors)
+
+		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+		// gl.FrontFace(gl.CW)
+		gl.DrawElementsInstanced(gl.TRIANGLES, gl.Sizei(len(indices)*intSz), gl.UNSIGNED_INT, gl.Pointer(&indices[0]), N_INSTANCES)
+
+		drawDone := false
+		for !drawDone {
+			drawWaitResult := gl.ClientWaitSync(syncFence, gl.SYNC_FLUSH_COMMANDS_BIT, 5000)
+			switch drawWaitResult {
+			case gl.ALREADY_SIGNALED:
+				drawDone = true
+			case gl.CONDITION_SATISFIED:
+				drawDone = true
+			case gl.TIMEOUT_EXPIRED:
+				fmt.Println("draw data waitsync reached timeout. retrying.")
+			case gl.WAIT_FAILED:
+				panic("gl.WAIT_FAILED in ClientWaitSync for Draw. Should never happen!")
+			}
+		}
 		window.GLSwap()
 		dt_draw := float32(time.Since(t3).Nanoseconds()) / 1e6
 		if dt_draw_avg == nil {
@@ -411,11 +411,6 @@ func main() {
 	fmt.Printf("avg prepare ms: %f\n", *dt_prepare_avg)
 	fmt.Printf("avg buffer ms: %f\n", *dt_buffer_avg)
 	fmt.Printf("avg draw ms: %f\n", *dt_draw_avg)
-}
-
-func drawgl(verts, colors []gl.Float) {
-	gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
-	gl.DrawArraysInstanced(gl.TRIANGLES, gl.Int(0), gl.Sizei(len(verts)*4), N_CUBES)
 }
 
 const (
@@ -440,7 +435,7 @@ void main()
 
 #version 330
 
-#define BYPASS 0
+#define BYPASS 2
 #define PIXEL_SIZE 3.0
 out vec4 outColor;
 in vec3 fragmentColor;
