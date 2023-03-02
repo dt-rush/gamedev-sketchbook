@@ -9,7 +9,6 @@ import "C"
 
 import (
 	"fmt"
-	"log"
 	"math"
 	"runtime"
 	"strings"
@@ -206,7 +205,7 @@ func main() {
 	fmt.Printf("pointLightsFlat: %v\n", pointLightsFlat)
 
 	// load model
-	vertNormArr := LoadObj("amitabha_small.obj")
+	vertNormArr := LoadObj("amitabha_smaller.obj")
 	fmt.Printf("%d bytes of vert,norm data\n", floatSz*len(vertNormArr))
 
 	// set up transforms for each instance
@@ -246,9 +245,9 @@ func main() {
 	var supported gl.Int
 	gl.GetInternalformativ(gl.TEXTURE_BUFFER, gl.RGBA32F, gl.INTERNALFORMAT_SUPPORTED, 1, &supported)
 	if supported == gl.TRUE {
-		log.Println("GL_RGBA32F format is supported")
+		fmt.Println("GL_RGBA32F format is supported")
 	} else {
-		log.Println("GL_RGBA32F format is not supported")
+		fmt.Println("GL_RGBA32F format is not supported")
 	}
 	var pointLightTexture gl.Uint
 	gl.GenTextures(1, &pointLightTexture)
