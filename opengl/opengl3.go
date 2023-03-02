@@ -170,7 +170,7 @@ func buildModels(positions, rotations, scales []mgl.Vec3) []mgl.Mat4 {
 	return models
 }
 
-const INSTANCE_DIM = 3
+const INSTANCE_DIM = 1
 const N_INSTANCES = INSTANCE_DIM * INSTANCE_DIM
 
 func main() {
@@ -186,8 +186,12 @@ func main() {
 	// XYZRGB
 	pointLights := []PointLight{
 		PointLight{
-			Position: mgl.Vec3{0, 8, 3},
+			Position: mgl.Vec3{-4, 8, 3},
 			Color:    mgl.Vec3{0.2, 1, 0.2},
+		},
+		PointLight{
+			Position: mgl.Vec3{4, 8, 3},
+			Color:    mgl.Vec3{1.0, 0.2, 0.2},
 		},
 	}
 	pointLightsFlat := make([]gl.Float, 0)
@@ -496,7 +500,7 @@ void main()
 	fragmentShaderSource = `
 #version 430
 
-#define BYPASS 0
+#define BYPASS 1
 #define PIXEL_SIZE 1.0
 #define ambient 0.05
 #define constAtt 1.0
@@ -517,8 +521,8 @@ void main()
 {
 	vec3 totalLight = vec3(0);
 	for (int i = 0; i < numPointLights; i++) {
-		vec3 lightPos = texelFetch(pointLights, i).xyz;
-		vec3 lightColor = texelFetch(pointLights, i+1).xyz;
+		vec3 lightPos = texelFetch(pointLights, 2*i).xyz;
+		vec3 lightColor = texelFetch(pointLights, 2*i+1).xyz;
 		vec3 toLight = lightPos - pass.pos;
 
 		vec3 dir = normalize(toLight);
@@ -563,7 +567,7 @@ void main()
 		vec3 onOff = vec3(result);
 		outColor = vec4(mix(onOff, totalLight, 0.5), 1.0);
 	} else if (BYPASS == 1) {
-		outColor = vec4(vec3(brightness), 1.0);
+		outColor = vec4(vec3(totalLight), 1.0);
 	} else if (BYPASS == 2) {
 		outColor = vec4(1.0);
 	}
