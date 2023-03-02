@@ -1,7 +1,15 @@
 package main
 
+/*
+#cgo CFLAGS: -Wall
+
+void openGLDebugCallback(int, int, int, int, int, char*, void*);
+*/
+import "C"
+
 import (
 	"fmt"
+	"log"
 	"math"
 	"runtime"
 	"strings"
@@ -17,6 +25,13 @@ var f gl.Float
 var floatSz int = int(unsafe.Sizeof(f))
 var i gl.Uint
 var intSz int = int(unsafe.Sizeof(i))
+
+func assertGLErr() {
+	err := gl.GetError()
+	if err != 0 {
+		panic(fmt.Sprintf("GL error: 0x%04x", err))
+	}
+}
 
 func logShaderCompileError(s gl.Uint) {
 	var logLength gl.Int
@@ -35,7 +50,7 @@ func compileShader(kind gl.Enum, src string) gl.Uint {
 	gl.CompileShader(s)
 	var status gl.Int
 	gl.GetShaderiv(s, gl.COMPILE_STATUS, &status)
-	fmt.Printf("Compiled Vertex Shader: %v\n", status)
+	fmt.Printf("Compiled Shader: %d\n", status)
 	if status == gl.FALSE {
 		logShaderCompileError(s)
 	}
@@ -45,13 +60,17 @@ func compileShader(kind gl.Enum, src string) gl.Uint {
 func createprogram() gl.Uint {
 	// CREATE PROGRAM
 	program := gl.CreateProgram()
+	assertGLErr()
 
 	// shaders
 	vs := compileShader(gl.VERTEX_SHADER, vertexShaderSource)
 	fs := compileShader(gl.FRAGMENT_SHADER, fragmentShaderSource)
+	// fs := compileShader(gl.FRAGMENT_SHADER, debugNilFragmentShaderSource)
+	assertGLErr()
 
 	gl.AttachShader(program, vs)
 	gl.AttachShader(program, fs)
+	assertGLErr()
 
 	fragoutstring := gl.GLString("outColor")
 	defer gl.GLStringFree(fragoutstring)
@@ -68,6 +87,11 @@ func createprogram() gl.Uint {
 	return program
 }
 
+//export openGLDebugCallback
+func openGLDebugCallback(source C.int, gltype C.int, id C.int, severity C.int, length C.int, message *C.char, userParam unsafe.Pointer) {
+	fmt.Printf("OpenGL Error: %v\n", C.GoString(message))
+}
+
 func glInit() {
 	gl.Init()
 	gl.Viewport(0, 0, gl.Sizei(winWidth), gl.Sizei(winHeight))
@@ -78,13 +102,18 @@ func glInit() {
 	gl.Enable(gl.BLEND)
 	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 
-	// DEBUG callback
-	debugCallback := func(source uint32, gltype uint32, id uint32, severity uint32, length int32, message string, userParam unsafe.Pointer) {
-		fmt.Printf("OpenGL Error: %v\n", message)
-	}
-	gl.Enable(gl.DEBUG_OUTPUT)
-	gl.DebugMessageCallback(gl.Pointer(unsafe.Pointer(&debugCallback)), gl.Pointer(nil))
+	extensions := gl.GoStringUb(gl.GetString(gl.EXTENSIONS))
 
+	if !strings.Contains(extensions, "GL_ARB_texture_buffer_object") {
+		panic("GL_ARGB_texture_buffer_object needs to be enabled")
+	} else {
+		fmt.Println("GL_ARGB_texture_buffer_object is enabled.")
+	}
+
+	// DEBUG callback
+	gl.Enable(gl.DEBUG_OUTPUT)
+	debugCallbackPtr := (gl.Pointer)(unsafe.Pointer(C.openGLDebugCallback))
+	gl.DebugMessageCallback(debugCallbackPtr, gl.Pointer(nil))
 }
 
 func SDLInit() (window *sdl.Window, context sdl.GLContext) {
@@ -154,8 +183,31 @@ func main() {
 
 	glInit()
 
+	// set up point lights
+	// XYZRGB
+	pointLights := []PointLight{
+		PointLight{
+			Position: mgl.Vec3{0, 8, 3},
+			Color:    mgl.Vec3{0.2, 1, 0.2},
+		},
+	}
+	pointLightsFlat := make([]gl.Float, 0)
+	for _, p := range pointLights {
+		pointLightsFlat = append(pointLightsFlat,
+			gl.Float(p.Position[0]),
+			gl.Float(p.Position[1]),
+			gl.Float(p.Position[2]),
+			gl.Float(0.0),
+			gl.Float(p.Color[0]),
+			gl.Float(p.Color[1]),
+			gl.Float(p.Color[2]),
+			gl.Float(0.0))
+	}
+	fmt.Printf("pointLightsFlat: %v\n", pointLightsFlat)
+
 	// load model
-	verts, indices := LoadObjVerts("amitabha_small.obj")
+	vertNormArr := LoadObj("amitabha_small.obj")
+	fmt.Printf("%d bytes of vert,norm data\n", floatSz*len(vertNormArr))
 
 	// set up transforms for each instance
 	positions := make([]mgl.Vec3, N_INSTANCES)
@@ -174,53 +226,67 @@ func main() {
 		}
 	}
 
-	fmt.Printf("%d bytes of vert data\n", floatSz*len(verts))
-	fmt.Printf("%d bytes of index data\n", intSz*len(indices))
-
-	// VERTEX BUFFER
+	// VERTEX,NORM BUFFER
 	var vertexBuffer gl.Uint
 	gl.GenBuffers(1, &vertexBuffer)
 	gl.BindBuffer(gl.ARRAY_BUFFER, vertexBuffer)
-	gl.BufferData(gl.ARRAY_BUFFER, gl.Sizeiptr(len(verts)*floatSz), gl.Pointer(&verts[0]), gl.STATIC_DRAW)
-
-	// INDEX BUFFER
-	var indexBuffer gl.Uint
-	gl.GenBuffers(1, &indexBuffer)
-	gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer)
-	gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, gl.Sizeiptr(len(indices)*intSz), gl.Pointer(&indices[0]), gl.STATIC_DRAW)
+	gl.BufferData(gl.ARRAY_BUFFER, gl.Sizeiptr(len(vertNormArr)*floatSz), gl.Pointer(&vertNormArr[0]), gl.STATIC_DRAW)
 
 	// INSTANCE MODEL BUFFER
 	// (note: BufferData() for this occurs in the loop after we update the models)
 	var modelBuffer gl.Uint
 	gl.GenBuffers(1, &modelBuffer)
 
-	/*
-		// COLOUR BUFFER
-		var colourbuffer gl.Uint
-		gl.GenBuffers(1, &colourbuffer)
-		gl.BindBuffer(gl.ARRAY_BUFFER, colourbuffer)
-		gl.BufferData(gl.ARRAY_BUFFER, gl.Sizeiptr(len(colors)*floatSz), gl.Pointer(&colors[0]), gl.STATIC_DRAW)
-	*/
+	// POINT LIGHTS TEXTURE BUFFER (variable size array trick)
+	var pointLightBuffer gl.Uint
+	gl.GenBuffers(1, &pointLightBuffer)
+	gl.BindBuffer(gl.TEXTURE_BUFFER, pointLightBuffer)
+	gl.BufferData(gl.TEXTURE_BUFFER, gl.Sizeiptr(len(pointLightsFlat)*floatSz), gl.Pointer(&pointLightsFlat[0]), gl.STATIC_DRAW)
+	// point light texture object
+	var supported gl.Int
+	gl.GetInternalformativ(gl.TEXTURE_BUFFER, gl.RGBA32F, gl.INTERNALFORMAT_SUPPORTED, 1, &supported)
+	if supported == gl.TRUE {
+		log.Println("GL_RGBA32F format is supported")
+	} else {
+		log.Println("GL_RGBA32F format is not supported")
+	}
+	var pointLightTexture gl.Uint
+	gl.GenTextures(1, &pointLightTexture)
+	gl.ActiveTexture(gl.TEXTURE0)
+	gl.BindTexture(gl.TEXTURE_BUFFER, pointLightTexture)
+	gl.TexBuffer(gl.TEXTURE_BUFFER, gl.RGBA32F, pointLightBuffer)
+	assertGLErr()
 
 	// GUESS WHAT
 	program := createprogram()
+	// USE PROGRAM
+	gl.UseProgram(program)
+	assertGLErr()
+
+	uniPointLights := gl.GetUniformLocation(program, gl.GLString("pointLights"))
+	fmt.Printf("uniPointLights location: %d\n", uniPointLights)
+	gl.Uniform1i(uniPointLights, 0) // 0 matches TEXTURE0 above
+	// numpointlights is needed to iterate
+	uniNumPointLights := gl.GetUniformLocation(program, gl.GLString("numPointLights"))
+	fmt.Printf("uniNumPointLights location: %d\n", uniNumPointLights)
+	gl.Uniform1i(uniNumPointLights, gl.Int(len(pointLights)))
 
 	// VERTEX ARRAY
 	var VertexArrayID gl.Uint
 	gl.GenVertexArrays(1, &VertexArrayID)
 	gl.BindVertexArray(VertexArrayID)
+	// vert data
 	vertLoc := gl.Uint(gl.GetAttribLocation(program, gl.GLString("vert")))
+	fmt.Printf("vert attrib loc: %d\n", vertLoc)
 	gl.EnableVertexAttribArray(vertLoc)
 	gl.BindBuffer(gl.ARRAY_BUFFER, vertexBuffer)
-	gl.VertexAttribPointer(vertLoc, 3, gl.FLOAT, gl.FALSE, 0, nil)
-
-	/*
-		// VERTEX ARRAY HOOK COLOURS
-		colorLoc := gl.Uint(gl.GetAttribLocation(program, gl.GLString("color")))
-		gl.EnableVertexAttribArray(colorLoc)
-		gl.BindBuffer(gl.ARRAY_BUFFER, colourbuffer)
-		gl.VertexAttribPointer(colorLoc, 3, gl.FLOAT, gl.FALSE, 0, nil)
-	*/
+	gl.VertexAttribPointer(vertLoc, 3, gl.FLOAT, gl.FALSE, gl.Sizei(6*floatSz), nil)
+	// norm data
+	normLoc := gl.Uint(gl.GetAttribLocation(program, gl.GLString("norm")))
+	fmt.Printf("norm attrib loc: %d\n", normLoc)
+	gl.EnableVertexAttribArray(normLoc)
+	gl.BindBuffer(gl.ARRAY_BUFFER, vertexBuffer)
+	gl.VertexAttribPointer(normLoc, 3, gl.FLOAT, gl.FALSE, gl.Sizei(6*floatSz), gl.Pointer(uintptr(3*floatSz)))
 
 	// VERTEX ARRAY HOOK MODELS
 	gl.BindBuffer(gl.ARRAY_BUFFER, modelBuffer)
@@ -243,24 +309,14 @@ func main() {
 	gl.VertexAttribDivisor(loc3, 1)
 	gl.VertexAttribDivisor(loc4, 1)
 
-	// USE PROGRAM
-	gl.UseProgram(program)
-
-	// ALIVENESS UNIFORM (used in fragment shader to saturate colour)
-	uniAlivenessString := gl.GLString("aliveness")
-	uniAliveness := gl.GetUniformLocation(program, uniAlivenessString)
-
 	// PROJECTION,VIEW UNIFORMS
-	uniProjectionString := gl.GLString("projection")
-	uniProjection := gl.GetUniformLocation(program, uniProjectionString)
+	uniProjection := gl.GetUniformLocation(program, gl.GLString("projection"))
 	fmt.Printf("projection uniform location: %d\n", uniProjection)
-	uniViewString := gl.GLString("view")
-	uniView := gl.GetUniformLocation(program, uniViewString)
+	uniView := gl.GetUniformLocation(program, gl.GLString("view"))
 	fmt.Printf("view uniform location: %d\n", uniView)
 
 	projection := mgl.Perspective(mgl.DegToRad(45.0), float32(winWidth)/winHeight, 0.1, 500.0)
 	eye := mgl.Vec3{0, INSTANCE_DIM + 3, 3 + 2*INSTANCE_DIM}
-	fmt.Println(eye)
 	zoomOut := float32(0.6)
 	eyeBack := mgl.Scale3D(zoomOut, zoomOut, zoomOut).Mul4x1(mgl.Vec4{eye[0], eye[1], eye[2], 1})
 	eye = mgl.Vec3{eyeBack[0], eyeBack[1], eyeBack[2]}
@@ -300,8 +356,8 @@ func main() {
 	syncFence := gl.FenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)
 
 	var xCenter float32
-	var yCenter float32
-	var aliveness float32
+	// var yCenter float32
+	// var aliveness float32
 	for running {
 		dt_ms := float32(time.Since(t0).Nanoseconds()) / 1e6
 		for event = sdl.PollEvent(); event != nil; event =
@@ -312,12 +368,12 @@ func main() {
 			case *sdl.MouseMotionEvent:
 				// fmt.Printf("[%dms]MouseMotion\tid:%d\tx:%d\ty:%d\txrel:%d\tyrel:%d\n", t.Timestamp, t.Which, t.X, t.Y, t.XRel, t.YRel)
 				xCenter = -1.0 + 2*float32(e.X)/float32(winWidth)
-				yCenter = -1.0 + 2*float32(e.Y)/float32(winHeight)
+				// yCenter = -1.0 + 2*float32(e.Y)/float32(winHeight)
 				// distance from midpoint of screen
-				r := math.Sqrt(float64((xCenter * xCenter) + (yCenter * yCenter)))
+				// r := math.Sqrt(float64((xCenter * xCenter) + (yCenter * yCenter)))
 				// normal distribution
-				sd := 0.1
-				aliveness = float32(math.Exp(-(r*r)/(2*sd))/(sd*math.Sqrt(2*math.Pi))) / 3
+				// sd := 0.1
+				// aliveness = float32(math.Exp(-(r*r)/(2*sd))/(sd*math.Sqrt(2*math.Pi))) / 3
 				// if you reset mouseY to zero whenever there hasn't been a mouseevent in x ms for very small x, you
 				// get a detector for smooth continuous motion that snaps to zero - great as a mechanic for a meditation
 				// mode
@@ -356,7 +412,6 @@ func main() {
 		// buffer data
 		t2 := time.Now()
 		gl.BufferData(gl.ARRAY_BUFFER, gl.Sizeiptr(len(modelsFlat)*floatSz), gl.Pointer(&modelsFlat[0]), gl.STATIC_DRAW)
-		gl.Uniform1f(uniAliveness, gl.Float(aliveness))
 		bufferDone := false
 		for !bufferDone {
 			bufferWaitResult := gl.ClientWaitSync(syncFence, gl.SYNC_FLUSH_COMMANDS_BIT, 5000)
@@ -383,7 +438,7 @@ func main() {
 
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 		// gl.FrontFace(gl.CW)
-		gl.DrawElementsInstanced(gl.TRIANGLES, gl.Sizei(len(indices)), gl.UNSIGNED_INT, gl.Pointer(&indices[0]), N_INSTANCES)
+		gl.DrawArraysInstanced(gl.TRIANGLES, gl.Int(0), gl.Sizei(len(vertNormArr)*floatSz), N_INSTANCES)
 
 		drawDone := false
 		for !drawDone {
@@ -418,32 +473,68 @@ const (
 	winWidth           = 640
 	winHeight          = 480
 	vertexShaderSource = `
-#version 330
-layout (location = 0) in vec3 vert;
-layout(location = 1) in vec3 color;
-layout(location = 2) in mat4 model;
+#version 430
+
+in vec3 vert;
+in vec3 norm;
+in mat4 model;
+
 uniform mat4 projection;
 uniform mat4 view;
-out vec3 fragmentColor;
+
+out VS_FS_INTERFACE {
+    vec3 pos;
+    vec3 norm;
+} pass;
+
 void main()
 {
     gl_Position = projection *  view * model * vec4(vert, 1);
-    fragmentColor = color;
+	pass.pos = vec3(model * vec4(vert, 1.0)); // Transform vertex position to world space
+    pass.norm = normalize(mat3(transpose(inverse(model))) * norm); // Transform normal vector to world space
 }
 `
 	fragmentShaderSource = `
+#version 430
 
-#version 330
+#define BYPASS 0
+#define PIXEL_SIZE 1.0
+#define ambient 0.05
+#define constAtt 1.0
+#define linAtt 0.01
+#define quadAtt 0.01
 
-#define BYPASS 2
-#define PIXEL_SIZE 3.0
+in VS_FS_INTERFACE {
+    vec3 pos;
+    vec3 norm;
+} pass;
+
+uniform int numPointLights;
+uniform samplerBuffer pointLights;
+
 out vec4 outColor;
-in vec3 fragmentColor;
-uniform float aliveness;
 
 void main()
 {
-	float brightness = (fragmentColor.r + fragmentColor.g + fragmentColor.b) / 3;
+	vec3 totalLight = vec3(0);
+	for (int i = 0; i < numPointLights; i++) {
+		vec3 lightPos = texelFetch(pointLights, i).xyz;
+		vec3 lightColor = texelFetch(pointLights, i+1).xyz;
+		vec3 toLight = lightPos - pass.pos;
+
+		vec3 dir = normalize(toLight);
+		float diffuse = max(dot(pass.norm, dir), 0.0);
+
+		float distance = length(toLight);
+		float attenuation = 1.0 / (constAtt + linAtt * distance + quadAtt * distance * distance);
+		
+		vec3 lightContribution = attenuation * lightColor * diffuse;
+		totalLight += lightContribution;
+	}
+
+	// compute greyscale brightness
+	float brightness = (totalLight.r + totalLight.g + totalLight.b) / 3;
+
 	if (BYPASS == 0) {
 
 		vec2 xy = gl_FragCoord.xy;
@@ -471,12 +562,13 @@ void main()
 		else if (x == 0 && y == 3) result = brightness > 01.0/17.0;
 
 		vec3 onOff = vec3(result);
-		outColor = vec4(mix(onOff, fragmentColor, clamp(aliveness/5, 0, 1)), 1.0);
+		outColor = vec4(mix(onOff, totalLight, 0.5), 1.0);
 	} else if (BYPASS == 1) {
 		outColor = vec4(vec3(brightness), 1.0);
 	} else if (BYPASS == 2) {
 		outColor = vec4(1.0);
 	}
+
 }
 `
 )
