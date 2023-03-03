@@ -241,7 +241,7 @@ func updatePointLights(pointLights []PointLight, dt_ms float32, t float32, xCent
 		pointLights[0].Color = mgl.Vec3{1.0, 0.0, 0}
 		pointLights[0].Position[0] = 0
 		pointLights[0].Position[1] = 0
-		pointLights[0].Position[2] = -3
+		pointLights[0].Position[2] = 1
 		if flameAccum.Tick(float64(dt_ms)) {
 			flameAccum = sameriver.NewTimeAccumulator(800 + 2000*rand.Float64())
 			pointLights[0].AttCoeff = gl.Float(0.2 + 0.02*(1+math.Cos(math.Pi*rand.Float64()))/2)
@@ -274,7 +274,7 @@ func main() {
 	const ADD_CANDLE = true
 	if ADD_CANDLE {
 		pointLights = append(pointLights, PointLight{
-			Position: mgl.Vec3{0, 0, -1},
+			Position: mgl.Vec3{0, 0, 1},
 			Color:    mgl.Vec3{1, 0.8, 0.2},
 			AttCoeff: 1.0,
 		})
@@ -282,12 +282,12 @@ func main() {
 	const ADD_RG_FRONTLIGHTS = false
 	if ADD_RG_FRONTLIGHTS {
 		pointLights = append(pointLights, PointLight{
-			Position: mgl.Vec3{-4, 8, 3},
+			Position: mgl.Vec3{-10, 0, 5},
 			Color:    mgl.Vec3{0.2, 1, 0.2},
 			AttCoeff: 0.01,
 		})
 		pointLights = append(pointLights, PointLight{
-			Position: mgl.Vec3{4, 8, 3},
+			Position: mgl.Vec3{4, 0, 5},
 			Color:    mgl.Vec3{1.0, 0.2, 0.2},
 			AttCoeff: 0.01,
 		})
@@ -403,7 +403,7 @@ func main() {
 	fmt.Printf("view uniform location: %d\n", uniView)
 
 	projection := mgl.Perspective(mgl.DegToRad(45.0), float32(winWidth)/winHeight, 0.1, 500.0)
-	eye := mgl.Vec3{0, INSTANCE_DIM + 3, -(3 + 2*INSTANCE_DIM)}
+	eye := mgl.Vec3{0, INSTANCE_DIM + 3, 3 + 2*INSTANCE_DIM}
 	zoomOut := float32(0.6)
 	eyeBack := mgl.Scale3D(zoomOut, zoomOut, zoomOut).Mul4x1(mgl.Vec4{eye[0], eye[1], eye[2], 1})
 	eye = mgl.Vec3{eyeBack[0], eyeBack[1], eyeBack[2]}
@@ -479,9 +479,9 @@ func main() {
 		t1 := time.Now()
 		for i := 0; i < N_INSTANCES; i++ {
 			x := i % N_INSTANCES
-			rotations[i] = mgl.Vec3{0, 0, 0}
+			rotations[i] = mgl.Vec3{0, math.Pi, 0}
 			// rotations[i] = mgl.Vec3{0, 0.1 * t, 0} // auto-rotate
-			// rotations[i] = mgl.Vec3{0, 2 * math.Pi * xCenter, 0} // mouse rotate
+			// rotations[i] = mgl.Vec3{0, math.Pi * xCenter, 0} // mouse rotate
 			// yAmplitude := float32(math.Log(N_INSTANCES+1)) * aliveness
 			yAmplitude := float32(0.0)
 			positions[i] = mgl.Vec3{positions[i][0], yAmplitude * float32(0.1*math.Sin(float64(2*math.Pi*(float32(x)/(INSTANCE_DIM/3.0)+dt_ms/1000.0)))), positions[i][2]}
