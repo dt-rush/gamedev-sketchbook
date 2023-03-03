@@ -158,26 +158,36 @@ func printLiteralMat4(name string, m mgl.Mat4) {
 	fmt.Printf(");\n")
 }
 
-func buildModels(positions, rotations, scales []mgl.Vec3) []mgl.Mat4 {
-	models := make([]mgl.Mat4, len(positions))
-	for i := 0; i < len(positions); i++ {
-		t := mgl.Translate3D(positions[i][0], positions[i][1], positions[i][2])
-		r := mgl.Ident4()
-		r = r.Mul4(mgl.HomogRotate3D(rotations[i][0], mgl.Vec3{1, 0, 0}))
-		r = r.Mul4(mgl.HomogRotate3D(rotations[i][1], mgl.Vec3{0, 1, 0}))
-		r = r.Mul4(mgl.HomogRotate3D(rotations[i][2], mgl.Vec3{0, 0, 1}))
-		s := mgl.Scale3D(scales[i][0], scales[i][1], scales[i][2])
-		models[i] = t.Mul4(r.Mul4(s))
+func LoadPointLights() (pointLights []PointLight) {
+	pointLights = []PointLight{
+		PointLight{
+			Position: mgl.Vec3{100, 5, 0},
+			Color:    mgl.Vec3{1, 1, 1},
+			AttCoeff: 0.1,
+		},
 	}
-	return models
-}
-
-func flattenModels(models []mgl.Mat4) (flattened []float32) {
-	flattened = make([]float32, len(models)*4*4)
-	for m := 0; m < len(models); m++ {
-		copy(flattened[(m*4*4):], models[m][:])
+	const ADD_CANDLE = true
+	if ADD_CANDLE {
+		pointLights = append(pointLights, PointLight{
+			Position: mgl.Vec3{0, 0, 0.5},
+			Color:    mgl.Vec3{1, 0.8, 0.2},
+			AttCoeff: 1.0,
+		})
 	}
-	return flattened
+	const ADD_RG_FRONTLIGHTS = false
+	if ADD_RG_FRONTLIGHTS {
+		pointLights = append(pointLights, PointLight{
+			Position: mgl.Vec3{-10, 0, 5},
+			Color:    mgl.Vec3{0.2, 1, 0.2},
+			AttCoeff: 0.01,
+		})
+		pointLights = append(pointLights, PointLight{
+			Position: mgl.Vec3{4, 0, 5},
+			Color:    mgl.Vec3{1.0, 0.2, 0.2},
+			AttCoeff: 0.01,
+		})
+	}
+	return pointLights
 }
 
 func flattenPointLights(pointLights []PointLight) (flattened []float32) {
@@ -201,10 +211,13 @@ const N_INSTANCES = INSTANCE_DIM * INSTANCE_DIM
 
 var flameAccum = sameriver.NewTimeAccumulator(500)
 
-func updatePointLights(pointLights []PointLight, dt_ms float32, t float32, xCenter float32) {
-	const LIGHT_MODE = "flame"
+func updatePointLights(pointLightCubes StaticModel, pointLights []PointLight, dt_ms float32, t float32, xCenter float32) {
+	const LIGHT_MODE = "circle"
 	var theta float32
+	var x, y, z float32
 	switch LIGHT_MODE {
+	case "off":
+		pointLights[0].AttCoeff = 100
 	case "mouse":
 		// move like the sun overhead along x axis
 		// x -> [-1, 1]                  // xCenter range on window
@@ -214,19 +227,19 @@ func updatePointLights(pointLights []PointLight, dt_ms float32, t float32, xCent
 		// sin(theta) -> [ 0...1...0]
 		// cos(theta) -> [-1...0...1]
 		theta = math.Pi * (1 - (xCenter+1)/2) // mousemovement
-		pointLights[0].Position[0] = 5 * float32(math.Cos(float64(theta)))
-		pointLights[0].Position[1] = 2*float32(math.Sin(float64(theta))) + 1
-		pointLights[0].Position[2] = 5
+		x = 5 * float32(math.Cos(float64(theta)))
+		y = 2*float32(math.Sin(float64(theta))) + 1
+		z = float32(5.0)
 	case "circle":
 		// move in circle
 		theta = math.Pi * t
-		pointLights[0].Position[0] = 8 * float32(math.Cos(float64(theta)))
-		pointLights[0].Position[1] = 3 // const height
-		pointLights[0].Position[2] = 8 * float32(math.Sin(float64(theta)))
+		x = 2 * float32(math.Cos(float64(theta)))
+		y = 1 // const height
+		z = 2 * float32(math.Sin(float64(theta)))
 	case "day":
 		theta = math.Pi * t / 2
-		pointLights[0].Position[0] = 8 * float32(math.Cos(float64(theta)))
-		pointLights[0].Position[1] = 8 * float32(math.Sin(float64(theta)))
+		x = 8 * float32(math.Cos(float64(theta)))
+		y = 8 * float32(math.Sin(float64(theta)))
 		// light completely attenuates when light is below horizon
 		if pointLights[0].Position[1] < 0 {
 			pointLights[0].AttCoeff = 10
@@ -234,23 +247,25 @@ func updatePointLights(pointLights []PointLight, dt_ms float32, t float32, xCent
 			pointLights[0].AttCoeff = 0.01
 		}
 	case "left":
-		pointLights[0].Position[0] = -2
-		pointLights[0].Position[1] = 1
-		pointLights[0].Position[2] = 0
+		x, y, z = -2, 1, 0
 	case "flame":
 		pointLights[0].Color = mgl.Vec3{1.0, 0.0, 0}
-		pointLights[0].Position[0] = 0
-		pointLights[0].Position[1] = 0
-		pointLights[0].Position[2] = 1
+		x, y, z = 0, 0, 0.5
 		if flameAccum.Tick(float64(dt_ms)) {
-			flameAccum = sameriver.NewTimeAccumulator(800 + 2000*rand.Float64())
-			pointLights[0].AttCoeff = gl.Float(0.2 + 0.02*(1+math.Cos(math.Pi*rand.Float64()))/2)
+			flameAccum = sameriver.NewTimeAccumulator(100 * rand.Float64())
+			pointLights[0].AttCoeff = gl.Float(0.2 + 0.2*(1+math.Cos(math.Pi*rand.Float64()))/2)
 			if len(pointLights) > 1 {
 				// consider candle as [1]
 				pointLights[1].AttCoeff = gl.Float(0.8 + 0.2*(1+math.Cos(math.Pi*rand.Float64()))/2)
 			}
 		}
 	}
+	pointLights[0].Position[0] = x
+	pointLights[0].Position[1] = y
+	pointLights[0].Position[2] = z
+	pointLightCubes.positions[0][0] = x
+	pointLightCubes.positions[0][1] = y
+	pointLightCubes.positions[0][2] = z
 }
 
 func main() {
@@ -262,68 +277,41 @@ func main() {
 
 	glInit()
 
+	// GUESS WHAT
+	program := createprogram()
+	// USE PROGRAM
+	gl.UseProgram(program)
+	assertGLErr()
+
 	// set up point lights
-	// XYZRGB
-	pointLights := []PointLight{
-		PointLight{
-			Position: mgl.Vec3{100, 5, 0},
-			Color:    mgl.Vec3{1, 1, 1},
-			AttCoeff: 0.2,
-		},
-	}
-	const ADD_CANDLE = true
-	if ADD_CANDLE {
-		pointLights = append(pointLights, PointLight{
-			Position: mgl.Vec3{0, 0, 1},
-			Color:    mgl.Vec3{1, 0.8, 0.2},
-			AttCoeff: 1.0,
-		})
-	}
-	const ADD_RG_FRONTLIGHTS = false
-	if ADD_RG_FRONTLIGHTS {
-		pointLights = append(pointLights, PointLight{
-			Position: mgl.Vec3{-10, 0, 5},
-			Color:    mgl.Vec3{0.2, 1, 0.2},
-			AttCoeff: 0.01,
-		})
-		pointLights = append(pointLights, PointLight{
-			Position: mgl.Vec3{4, 0, 5},
-			Color:    mgl.Vec3{1.0, 0.2, 0.2},
-			AttCoeff: 0.01,
-		})
+	pointLights := LoadPointLights()
+	pointLightCubes := NewStaticModel("cube.obj", len(pointLights))
+	for i := range pointLights {
+		pointLightCubes.positions[i] = pointLights[i].Position
+		fmt.Printf("pointLightCubes.positions[%d] = %v\n", i, pointLightCubes.positions[i])
+		s := float32(0.01)
+		pointLightCubes.scales[i] = mgl.Vec3{s, s, s}
+		fmt.Printf("pointLightCubes.scales[%d] = %v\n", i, pointLightCubes.scales[i])
 	}
 
 	// load model
-	vertNormArr := LoadObj("amitabha_smaller.obj")
-	fmt.Printf("%d bytes of vert,norm data\n", floatSz*len(vertNormArr))
+	amitabha := NewStaticModel("amitabha_smaller.obj", N_INSTANCES)
 
 	// set up transforms for each instance
-	positions := make([]mgl.Vec3, N_INSTANCES)
-	rotations := make([]mgl.Vec3, N_INSTANCES)
-	scales := make([]mgl.Vec3, N_INSTANCES)
 	for i := 0; i < INSTANCE_DIM; i++ {
 		for j := 0; j < INSTANCE_DIM; j++ {
 			ix := INSTANCE_DIM*i + j
-			positions[ix] = mgl.Vec3{
+			amitabha.positions[ix] = mgl.Vec3{
 				1.2 * float32(-INSTANCE_DIM/2+i),
 				0,
 				1.2 * float32(-INSTANCE_DIM/2+j)}
-			rotations[ix] = mgl.Vec3{0, 0, 0}
+			fmt.Printf("amitabha.positions[%d] = %v\n", i, amitabha.positions[i])
+			amitabha.rotations[ix] = mgl.Vec3{0, math.Pi, 0}
 			s := float32(0.333)
-			scales[ix] = mgl.Vec3{s, s, s}
+			amitabha.scales[ix] = mgl.Vec3{s, s, s}
+			fmt.Printf("amitabha.scales[%d] = %v\n", i, amitabha.scales[i])
 		}
 	}
-
-	// VERTEX,NORM BUFFER
-	var vertexBuffer gl.Uint
-	gl.GenBuffers(1, &vertexBuffer)
-	gl.BindBuffer(gl.ARRAY_BUFFER, vertexBuffer)
-	gl.BufferData(gl.ARRAY_BUFFER, gl.Sizeiptr(len(vertNormArr)*floatSz), gl.Pointer(&vertNormArr[0]), gl.STATIC_DRAW)
-
-	// INSTANCE MODEL BUFFER
-	// (note: BufferData() for this occurs in the loop after we update the models)
-	var modelBuffer gl.Uint
-	gl.GenBuffers(1, &modelBuffer)
 
 	// POINT LIGHTS TEXTURE BUFFER (variable size array trick)
 	var pointLightBuffer gl.Uint
@@ -344,11 +332,8 @@ func main() {
 	gl.TexBuffer(gl.TEXTURE_BUFFER, gl.RGBA32F, pointLightBuffer)
 	assertGLErr()
 
-	// GUESS WHAT
-	program := createprogram()
-	// USE PROGRAM
-	gl.UseProgram(program)
-	assertGLErr()
+	pointLightCubes.genVAO(program)
+	amitabha.genVAO(program)
 
 	uniPointLights := gl.GetUniformLocation(program, gl.GLString("pointLights"))
 	fmt.Printf("uniPointLights location: %d\n", uniPointLights)
@@ -358,43 +343,8 @@ func main() {
 	fmt.Printf("uniNumPointLights location: %d\n", uniNumPointLights)
 	gl.Uniform1i(uniNumPointLights, gl.Int(len(pointLights)))
 
-	// VERTEX ARRAY
-	var VertexArrayID gl.Uint
-	gl.GenVertexArrays(1, &VertexArrayID)
-	gl.BindVertexArray(VertexArrayID)
-	// vert data
-	vertLoc := gl.Uint(gl.GetAttribLocation(program, gl.GLString("vert")))
-	fmt.Printf("vert attrib loc: %d\n", vertLoc)
-	gl.EnableVertexAttribArray(vertLoc)
-	gl.BindBuffer(gl.ARRAY_BUFFER, vertexBuffer)
-	gl.VertexAttribPointer(vertLoc, 3, gl.FLOAT, gl.FALSE, gl.Sizei(6*floatSz), nil)
-	// norm data
-	normLoc := gl.Uint(gl.GetAttribLocation(program, gl.GLString("norm")))
-	fmt.Printf("norm attrib loc: %d\n", normLoc)
-	gl.EnableVertexAttribArray(normLoc)
-	gl.BindBuffer(gl.ARRAY_BUFFER, vertexBuffer)
-	gl.VertexAttribPointer(normLoc, 3, gl.FLOAT, gl.FALSE, gl.Sizei(6*floatSz), gl.Pointer(uintptr(3*floatSz)))
-
-	// VERTEX ARRAY HOOK MODELS
-	gl.BindBuffer(gl.ARRAY_BUFFER, modelBuffer)
-	modelLoc := gl.Uint(gl.GetAttribLocation(program, gl.GLString("model")))
-	loc1 := modelLoc + 0
-	loc2 := modelLoc + 1
-	loc3 := modelLoc + 2
-	loc4 := modelLoc + 3
-	gl.EnableVertexAttribArray(loc1)
-	gl.EnableVertexAttribArray(loc2)
-	gl.EnableVertexAttribArray(loc3)
-	gl.EnableVertexAttribArray(loc4)
-	gl.VertexAttribPointer(loc1, 4, gl.FLOAT, gl.FALSE, gl.Sizei(floatSz*4*4), gl.Pointer(uintptr(0)))
-	gl.VertexAttribPointer(loc2, 4, gl.FLOAT, gl.FALSE, gl.Sizei(floatSz*4*4), gl.Pointer(uintptr(4*floatSz)))
-	gl.VertexAttribPointer(loc3, 4, gl.FLOAT, gl.FALSE, gl.Sizei(floatSz*4*4), gl.Pointer(uintptr(8*floatSz)))
-	gl.VertexAttribPointer(loc4, 4, gl.FLOAT, gl.FALSE, gl.Sizei(floatSz*4*4), gl.Pointer(uintptr(12*floatSz)))
-	gl.BindBuffer(gl.ARRAY_BUFFER, vertexBuffer)
-	gl.VertexAttribDivisor(loc1, 1)
-	gl.VertexAttribDivisor(loc2, 1)
-	gl.VertexAttribDivisor(loc3, 1)
-	gl.VertexAttribDivisor(loc4, 1)
+	uniIsPointLightCube := gl.GetUniformLocation(program, gl.GLString("isPointLightCube"))
+	fmt.Printf("uniIsPointLightCube location: %d\n", uniNumPointLights)
 
 	// PROJECTION,VIEW UNIFORMS
 	uniProjection := gl.GetUniformLocation(program, gl.GLString("projection"))
@@ -414,12 +364,7 @@ func main() {
 	fmt.Println()
 	printLiteralMat4("projection", projection)
 	printLiteralMat4("view", view)
-	models := buildModels(positions, rotations, scales)
-	printLiteralMat4("model", models[0])
-
-	fmt.Println()
-	fmt.Printf("view: %v\n", view)
-	fmt.Printf("model[0]: %v\n", models[0])
+	printLiteralMat4("model", amitabha.models[0])
 
 	gl.UniformMatrix4fv(uniProjection, 1, gl.FALSE, (*gl.Float)(unsafe.Pointer(&projection[0])))
 	gl.UniformMatrix4fv(uniView, 1, gl.FALSE, (*gl.Float)(unsafe.Pointer(&view[0])))
@@ -429,7 +374,6 @@ func main() {
 	running = true
 	t0 := time.Now()
 	var dt_prepare_avg *float32 = nil
-	var dt_buffer_avg *float32 = nil
 	var dt_draw_avg *float32 = nil
 	handleKBEvent := func(ke *sdl.KeyboardEvent) {
 		if ke.Type == sdl.KEYDOWN {
@@ -440,14 +384,15 @@ func main() {
 	}
 
 	// used to wait for GPU if it's not done yet
-	syncFence := gl.FenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)
 
 	var xCenter float32
 	// var yCenter float32
 	// var aliveness float32
+	dt0 := time.Now()
 	for running {
 		t := float32(time.Since(t0).Seconds())
-		dt_ms := float32(time.Since(t0).Nanoseconds()) / 1e6
+		dt_ms := float32(time.Since(dt0).Nanoseconds()) / 1e6
+		dt0 = time.Now()
 		for event = sdl.PollEvent(); event != nil; event =
 			sdl.PollEvent() {
 			switch e := event.(type) {
@@ -459,9 +404,8 @@ func main() {
 				// yCenter = -1.0 + 2*float32(e.Y)/float32(winHeight)
 				// distance from midpoint of screen
 				// r := math.Sqrt(float64((xCenter * xCenter) + (yCenter * yCenter)))
-				// normal distribution
 				// sd := 0.1
-				// aliveness = float32(math.Exp(-(r*r)/(2*sd))/(sd*math.Sqrt(2*math.Pi))) / 3
+				// aliveness = float32(math.Exp(-(r*r)/(2*sd))/(sd*math.Sqrt(2*math.Pi))) / 3 // 3d normal distribution centered on screen
 				// if you reset mouseY to zero whenever there hasn't been a mouseevent in x ms for very small x, you
 				// get a detector for smooth continuous motion that snaps to zero - great as a mechanic for a meditation
 				// mode
@@ -471,26 +415,24 @@ func main() {
 		}
 
 		// modify/prepare models
-		for i, m := range models {
-			rot := mgl.HomogRotate3DY(0.05 * float32(i) / float32(len(models)))
-			models[i] = rot.Mul4(m)
-		}
-		gl.BindBuffer(gl.ARRAY_BUFFER, modelBuffer)
+		/*
+			for i, m := range amitabha.models {
+				amitabha.rotations[i] = 0.05 * float32(i) / float32(amitabha.nInstances)
+			}
+		*/
 		t1 := time.Now()
 		for i := 0; i < N_INSTANCES; i++ {
 			x := i % N_INSTANCES
-			rotations[i] = mgl.Vec3{0, math.Pi, 0}
-			// rotations[i] = mgl.Vec3{0, 0.1 * t, 0} // auto-rotate
-			// rotations[i] = mgl.Vec3{0, math.Pi * xCenter, 0} // mouse rotate
+			// amitabha.rotations[i] = mgl.Vec3{0, math.Pi, 0} // front-facing
+			// amitabha.rotations[i] = mgl.Vec3{0, 0.1 * t, 0} // auto-rotate
+			// amitabha.rotations[i] = mgl.Vec3{0, math.Pi + math.Pi*xCenter, 0} // mouse rotate
 			// yAmplitude := float32(math.Log(N_INSTANCES+1)) * aliveness
 			yAmplitude := float32(0.0)
-			positions[i] = mgl.Vec3{positions[i][0], yAmplitude * float32(0.1*math.Sin(float64(2*math.Pi*(float32(x)/(INSTANCE_DIM/3.0)+dt_ms/1000.0)))), positions[i][2]}
+			amitabha.positions[i][1] = yAmplitude * float32(0.1*math.Sin(float64(2*math.Pi*(float32(x)/(INSTANCE_DIM/3.0)+t))))
 		}
-		models = buildModels(positions, rotations, scales)
-		modelsFlat := flattenModels(models)
 
 		// modify/prepare point lights
-		updatePointLights(pointLights, dt_ms, t, xCenter)
+		updatePointLights(pointLightCubes, pointLights, dt_ms, t, xCenter)
 		pointLightsFlat := flattenPointLights(pointLights)
 		dt_prepare := float32(time.Since(t1).Nanoseconds()) / 1e6
 		if dt_prepare_avg == nil {
@@ -500,64 +442,21 @@ func main() {
 		}
 
 		// buffer data
-		t2 := time.Now()
-		gl.BindBuffer(gl.ARRAY_BUFFER, modelBuffer)
-		gl.BufferData(gl.ARRAY_BUFFER, gl.Sizeiptr(len(modelsFlat)*floatSz), gl.Pointer(&modelsFlat[0]), gl.STATIC_DRAW)
 		gl.BindBuffer(gl.TEXTURE_BUFFER, pointLightBuffer)
 		gl.BufferData(gl.TEXTURE_BUFFER, gl.Sizeiptr(len(pointLightsFlat)*floatSz), gl.Pointer(&pointLightsFlat[0]), gl.STATIC_DRAW)
-		bufferDone := false
-		for !bufferDone {
-			bufferWaitResult := gl.ClientWaitSync(syncFence, gl.SYNC_FLUSH_COMMANDS_BIT, 5000)
-			switch bufferWaitResult {
-			case gl.ALREADY_SIGNALED:
-				bufferDone = true
-			case gl.CONDITION_SATISFIED:
-				bufferDone = true
-			case gl.TIMEOUT_EXPIRED:
-				fmt.Println("buffer data waitsync reached timeout. retrying.")
-			case gl.WAIT_FAILED:
-				panic("gl.WAIT_FAILED in ClientWaitSync for BufferData. Should never happen!")
-			}
-		}
-		dt_buffer := float32(time.Since(t2).Nanoseconds()) / 1e6
-		if dt_buffer_avg == nil {
-			dt_buffer_avg = &dt_buffer
-		} else {
-			*dt_buffer_avg = (*dt_buffer_avg + dt_buffer) / 2.0
-		}
 
 		// draw
-		t3 := time.Now()
-
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 		// gl.FrontFace(gl.CW)
-		gl.DrawArraysInstanced(gl.TRIANGLES, gl.Int(0), gl.Sizei(len(vertNormArr)*floatSz), N_INSTANCES)
-
-		drawDone := false
-		for !drawDone {
-			drawWaitResult := gl.ClientWaitSync(syncFence, gl.SYNC_FLUSH_COMMANDS_BIT, 5000)
-			switch drawWaitResult {
-			case gl.ALREADY_SIGNALED:
-				drawDone = true
-			case gl.CONDITION_SATISFIED:
-				drawDone = true
-			case gl.TIMEOUT_EXPIRED:
-				fmt.Println("draw data waitsync reached timeout. retrying.")
-			case gl.WAIT_FAILED:
-				panic("gl.WAIT_FAILED in ClientWaitSync for Draw. Should never happen!")
-			}
-		}
+		gl.Uniform1i(uniIsPointLightCube, gl.Int(0))
+		amitabha.Draw()
+		gl.Uniform1i(uniIsPointLightCube, gl.Int(1))
+		pointLightCubes.Draw()
 		window.GLSwap()
-		dt_draw := float32(time.Since(t3).Nanoseconds()) / 1e6
-		if dt_draw_avg == nil {
-			dt_draw_avg = &dt_draw
-		} else {
-			*dt_draw_avg = (*dt_draw_avg + dt_draw) / 2.0
-		}
+
 		time.Sleep(50 * time.Millisecond)
 	}
 	fmt.Printf("avg prepare ms: %f\n", *dt_prepare_avg)
-	fmt.Printf("avg buffer ms: %f\n", *dt_buffer_avg)
 	fmt.Printf("avg draw ms: %f\n", *dt_draw_avg)
 }
 
@@ -590,10 +489,10 @@ void main()
 	fragmentShaderSource = `
 #version 430
 
-#define BYPASS 1
+#define BYPASS 0
 #define ORIGINAL_MIX 0.7
 #define PIXEL_SIZE 1
-#define ambient 0.05
+#define ambient 0.1
 #define constAtt 1.0
 
 in VS_FS_INTERFACE {
@@ -601,6 +500,7 @@ in VS_FS_INTERFACE {
     vec3 norm;
 } pass;
 
+uniform int isPointLightCube;
 uniform int numPointLights;
 uniform samplerBuffer pointLights;
 
@@ -608,7 +508,11 @@ out vec4 outColor;
 
 void main()
 {
-	vec3 totalLight = vec3(0);
+	if (isPointLightCube == 1) {
+		outColor = vec4(vec3(1), 1);
+		return;
+	}
+	vec3 totalLight = vec3(ambient);
 	for (int i = 0; i < numPointLights; i++) {
 		vec3 lightPos = texelFetch(pointLights, 2*i).xyz;
 		vec3 lightColor = texelFetch(pointLights, 2*i+1).rgb;
