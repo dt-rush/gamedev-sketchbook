@@ -170,8 +170,71 @@ func buildModels(positions, rotations, scales []mgl.Vec3) []mgl.Mat4 {
 	return models
 }
 
+func flattenModels(models []mgl.Mat4) (flattened []float32) {
+	flattened = make([]float32, len(models)*4*4)
+	for m := 0; m < len(models); m++ {
+		copy(flattened[(m*4*4):], models[m][:])
+	}
+	return flattened
+}
+
+func flattenPointLights(pointLights []PointLight) (flattened []float32) {
+	flattened = make([]float32, 0)
+	for _, p := range pointLights {
+		flattened = append(flattened,
+			float32(p.Position[0]),
+			float32(p.Position[1]),
+			float32(p.Position[2]),
+			float32(0.0),
+			float32(p.Color[0]),
+			float32(p.Color[1]),
+			float32(p.Color[2]),
+			float32(p.AttCoeff)) // little trick, put the attcoeff in color data vec4, call it RGBI (i intensity aka attenuation coefficient)
+	}
+	return flattened
+}
+
 const INSTANCE_DIM = 1
 const N_INSTANCES = INSTANCE_DIM * INSTANCE_DIM
+
+func updatePointLights(pointLights []PointLight, t float32, xCenter float32) {
+	const LIGHT_MOVEMENT_MODE = "mouse"
+	var theta float32
+	switch LIGHT_MOVEMENT_MODE {
+	case "mouse":
+		// move like the sun overhead along x axis
+		// x -> [-1, 1]                  // xCenter range on window
+		// (x+1)/2 -> [0, 1]
+		// 1 - (x+1)/2 -> [1, 0]
+		// pi*(1 - (x+1)/2) -> [pi, 0]   // theta
+		// sin(theta) -> [ 0...1...0]
+		// cos(theta) -> [-1...0...1]
+		theta = math.Pi * (1 - (xCenter+1)/2) // mousemovement
+		pointLights[0].Position[0] = 5 * float32(math.Cos(float64(theta)))
+		pointLights[0].Position[1] = 2*float32(math.Sin(float64(theta))) + 1
+		pointLights[0].Position[2] = 5
+	case "circle":
+		// move in circle
+		theta = math.Pi * t
+		pointLights[0].Position[0] = 8 * float32(math.Cos(float64(theta)))
+		pointLights[0].Position[1] = 3 // const height
+		pointLights[0].Position[2] = 8 * float32(math.Sin(float64(theta)))
+	case "day":
+		theta = math.Pi * t / 2
+		pointLights[0].Position[0] = 8 * float32(math.Cos(float64(theta)))
+		pointLights[0].Position[1] = 8 * float32(math.Sin(float64(theta)))
+		// light completely attenuates when light is below horizon
+		if pointLights[0].Position[1] < 0 {
+			pointLights[0].AttCoeff = 10
+		} else {
+			pointLights[0].AttCoeff = 0.01
+		}
+	case "left":
+		pointLights[0].Position[0] = -2
+		pointLights[0].Position[1] = 1
+		pointLights[0].Position[2] = 0
+	}
+}
 
 func main() {
 
@@ -186,27 +249,24 @@ func main() {
 	// XYZRGB
 	pointLights := []PointLight{
 		PointLight{
+			Position: mgl.Vec3{100, 5, 0},
+			Color:    mgl.Vec3{1, 1, 1},
+			AttCoeff: 0.01,
+		},
+	}
+	const ADD_RG_FRONTLIGHTS = true
+	if ADD_RG_FRONTLIGHTS {
+		pointLights = append(pointLights, PointLight{
 			Position: mgl.Vec3{-4, 8, 3},
 			Color:    mgl.Vec3{0.2, 1, 0.2},
-		},
-		PointLight{
+			AttCoeff: 0.01,
+		})
+		pointLights = append(pointLights, PointLight{
 			Position: mgl.Vec3{4, 8, 3},
 			Color:    mgl.Vec3{1.0, 0.2, 0.2},
-		},
+			AttCoeff: 0.01,
+		})
 	}
-	pointLightsFlat := make([]gl.Float, 0)
-	for _, p := range pointLights {
-		pointLightsFlat = append(pointLightsFlat,
-			gl.Float(p.Position[0]),
-			gl.Float(p.Position[1]),
-			gl.Float(p.Position[2]),
-			gl.Float(0.0),
-			gl.Float(p.Color[0]),
-			gl.Float(p.Color[1]),
-			gl.Float(p.Color[2]),
-			gl.Float(0.0))
-	}
-	fmt.Printf("pointLightsFlat: %v\n", pointLightsFlat)
 
 	// load model
 	vertNormArr := LoadObj("amitabha_smaller.obj")
@@ -220,9 +280,9 @@ func main() {
 		for j := 0; j < INSTANCE_DIM; j++ {
 			ix := INSTANCE_DIM*i + j
 			positions[ix] = mgl.Vec3{
-				2 * float32(-INSTANCE_DIM/2+i),
+				1.2 * float32(-INSTANCE_DIM/2+i),
 				0,
-				2 * float32(-INSTANCE_DIM/2+j)}
+				1.2 * float32(-INSTANCE_DIM/2+j)}
 			rotations[ix] = mgl.Vec3{0, 0, 0}
 			s := float32(0.333)
 			scales[ix] = mgl.Vec3{s, s, s}
@@ -244,7 +304,6 @@ func main() {
 	var pointLightBuffer gl.Uint
 	gl.GenBuffers(1, &pointLightBuffer)
 	gl.BindBuffer(gl.TEXTURE_BUFFER, pointLightBuffer)
-	gl.BufferData(gl.TEXTURE_BUFFER, gl.Sizeiptr(len(pointLightsFlat)*floatSz), gl.Pointer(&pointLightsFlat[0]), gl.STATIC_DRAW)
 	// point light texture object
 	var supported gl.Int
 	gl.GetInternalformativ(gl.TEXTURE_BUFFER, gl.RGBA32F, gl.INTERNALFORMAT_SUPPORTED, 1, &supported)
@@ -362,6 +421,7 @@ func main() {
 	// var yCenter float32
 	// var aliveness float32
 	for running {
+		t := float32(time.Since(t0).Seconds())
 		dt_ms := float32(time.Since(t0).Nanoseconds()) / 1e6
 		for event = sdl.PollEvent(); event != nil; event =
 			sdl.PollEvent() {
@@ -394,17 +454,19 @@ func main() {
 		t1 := time.Now()
 		for i := 0; i < N_INSTANCES; i++ {
 			x := i % N_INSTANCES
-			// rotations[i] = rotations[i].Add(mgl.Vec3{0, 0.01, 0})
-			rotations[i] = mgl.Vec3{0, 2 * math.Pi * xCenter, 0}
+			rotations[i] = mgl.Vec3{0, 0.1 * t, 0} // auto-rotate
+			// rotations[i] = mgl.Vec3{0, 2 * math.Pi * xCenter, 0} // mouse rotate
 			// yAmplitude := float32(math.Log(N_INSTANCES+1)) * aliveness
 			yAmplitude := float32(0.0)
 			positions[i] = mgl.Vec3{positions[i][0], yAmplitude * float32(0.1*math.Sin(float64(2*math.Pi*(float32(x)/(INSTANCE_DIM/3.0)+dt_ms/1000.0)))), positions[i][2]}
 		}
 		models = buildModels(positions, rotations, scales)
-		modelsFlat := make([]float32, N_INSTANCES*4*4)
-		for m := 0; m < N_INSTANCES; m++ {
-			copy(modelsFlat[(m*4*4):], models[m][:])
-		}
+		modelsFlat := flattenModels(models)
+
+		// modify/prepare point lights
+		updatePointLights(pointLights, t, xCenter)
+		fmt.Println(pointLights[0].Position[0])
+		pointLightsFlat := flattenPointLights(pointLights)
 		dt_prepare := float32(time.Since(t1).Nanoseconds()) / 1e6
 		if dt_prepare_avg == nil {
 			dt_prepare_avg = &dt_prepare
@@ -414,7 +476,10 @@ func main() {
 
 		// buffer data
 		t2 := time.Now()
+		gl.BindBuffer(gl.ARRAY_BUFFER, modelBuffer)
 		gl.BufferData(gl.ARRAY_BUFFER, gl.Sizeiptr(len(modelsFlat)*floatSz), gl.Pointer(&modelsFlat[0]), gl.STATIC_DRAW)
+		gl.BindBuffer(gl.TEXTURE_BUFFER, pointLightBuffer)
+		gl.BufferData(gl.TEXTURE_BUFFER, gl.Sizeiptr(len(pointLightsFlat)*floatSz), gl.Pointer(&pointLightsFlat[0]), gl.STATIC_DRAW)
 		bufferDone := false
 		for !bufferDone {
 			bufferWaitResult := gl.ClientWaitSync(syncFence, gl.SYNC_FLUSH_COMMANDS_BIT, 5000)
@@ -473,8 +538,8 @@ func main() {
 
 const (
 	winTitle           = "OpenGL Shader"
-	winWidth           = 640
-	winHeight          = 480
+	winWidth           = 1024
+	winHeight          = 926
 	vertexShaderSource = `
 #version 430
 
@@ -500,12 +565,11 @@ void main()
 	fragmentShaderSource = `
 #version 430
 
-#define BYPASS 1
-#define PIXEL_SIZE 1.0
+#define BYPASS 0
+#define ORIGINAL_MIX 0.1
+#define PIXEL_SIZE 1
 #define ambient 0.05
 #define constAtt 1.0
-#define linAtt 0.01
-#define quadAtt 0.01
 
 in VS_FS_INTERFACE {
     vec3 pos;
@@ -522,14 +586,15 @@ void main()
 	vec3 totalLight = vec3(0);
 	for (int i = 0; i < numPointLights; i++) {
 		vec3 lightPos = texelFetch(pointLights, 2*i).xyz;
-		vec3 lightColor = texelFetch(pointLights, 2*i+1).xyz;
+		vec3 lightColor = texelFetch(pointLights, 2*i+1).rgb;
+		float attCoeff = texelFetch(pointLights, 2*i+1).w;
 		vec3 toLight = lightPos - pass.pos;
 
 		vec3 dir = normalize(toLight);
 		float diffuse = max(dot(pass.norm, dir), 0.0);
 
 		float distance = length(toLight);
-		float attenuation = 1.0 / (constAtt + linAtt * distance + quadAtt * distance * distance);
+		float attenuation = 1.0 / (constAtt + attCoeff * distance + attCoeff * distance * distance);
 		
 		vec3 lightContribution = attenuation * lightColor * diffuse;
 		totalLight += lightContribution;
@@ -565,7 +630,7 @@ void main()
 		else if (x == 0 && y == 3) result = brightness > 01.0/17.0;
 
 		vec3 onOff = vec3(result);
-		outColor = vec4(mix(onOff, totalLight, 0.5), 1.0);
+		outColor = vec4(mix(onOff, totalLight, ORIGINAL_MIX), 1.0);
 	} else if (BYPASS == 1) {
 		outColor = vec4(vec3(totalLight), 1.0);
 	} else if (BYPASS == 2) {
