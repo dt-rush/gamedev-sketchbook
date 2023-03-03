@@ -10,6 +10,7 @@ import "C"
 import (
 	"fmt"
 	"math"
+	"math/rand"
 	"runtime"
 	"strings"
 	"time"
@@ -18,6 +19,8 @@ import (
 	gl "github.com/chsc/gogl/gl43"
 	mgl "github.com/go-gl/mathgl/mgl32"
 	"github.com/veandco/go-sdl2/sdl"
+
+	"github.com/dt-rush/sameriver/v3"
 )
 
 var f gl.Float
@@ -82,7 +85,6 @@ func createprogram() gl.Uint {
 
 	gl.DeleteShader(vs)
 	gl.DeleteShader(fs)
-
 	return program
 }
 
@@ -197,10 +199,12 @@ func flattenPointLights(pointLights []PointLight) (flattened []float32) {
 const INSTANCE_DIM = 1
 const N_INSTANCES = INSTANCE_DIM * INSTANCE_DIM
 
-func updatePointLights(pointLights []PointLight, t float32, xCenter float32) {
-	const LIGHT_MOVEMENT_MODE = "mouse"
+var flameAccum = sameriver.NewTimeAccumulator(500)
+
+func updatePointLights(pointLights []PointLight, dt_ms float32, t float32, xCenter float32) {
+	const LIGHT_MODE = "flame"
 	var theta float32
-	switch LIGHT_MOVEMENT_MODE {
+	switch LIGHT_MODE {
 	case "mouse":
 		// move like the sun overhead along x axis
 		// x -> [-1, 1]                  // xCenter range on window
@@ -233,6 +237,19 @@ func updatePointLights(pointLights []PointLight, t float32, xCenter float32) {
 		pointLights[0].Position[0] = -2
 		pointLights[0].Position[1] = 1
 		pointLights[0].Position[2] = 0
+	case "flame":
+		pointLights[0].Color = mgl.Vec3{1.0, 0.0, 0}
+		pointLights[0].Position[0] = 0
+		pointLights[0].Position[1] = 0
+		pointLights[0].Position[2] = -3
+		if flameAccum.Tick(float64(dt_ms)) {
+			flameAccum = sameriver.NewTimeAccumulator(800 + 2000*rand.Float64())
+			pointLights[0].AttCoeff = gl.Float(0.2 + 0.02*(1+math.Cos(math.Pi*rand.Float64()))/2)
+			if len(pointLights) > 1 {
+				// consider candle as [1]
+				pointLights[1].AttCoeff = gl.Float(0.8 + 0.2*(1+math.Cos(math.Pi*rand.Float64()))/2)
+			}
+		}
 	}
 }
 
@@ -251,10 +268,18 @@ func main() {
 		PointLight{
 			Position: mgl.Vec3{100, 5, 0},
 			Color:    mgl.Vec3{1, 1, 1},
-			AttCoeff: 0.01,
+			AttCoeff: 0.2,
 		},
 	}
-	const ADD_RG_FRONTLIGHTS = true
+	const ADD_CANDLE = true
+	if ADD_CANDLE {
+		pointLights = append(pointLights, PointLight{
+			Position: mgl.Vec3{0, 0, -1},
+			Color:    mgl.Vec3{1, 0.8, 0.2},
+			AttCoeff: 1.0,
+		})
+	}
+	const ADD_RG_FRONTLIGHTS = false
 	if ADD_RG_FRONTLIGHTS {
 		pointLights = append(pointLights, PointLight{
 			Position: mgl.Vec3{-4, 8, 3},
@@ -378,7 +403,7 @@ func main() {
 	fmt.Printf("view uniform location: %d\n", uniView)
 
 	projection := mgl.Perspective(mgl.DegToRad(45.0), float32(winWidth)/winHeight, 0.1, 500.0)
-	eye := mgl.Vec3{0, INSTANCE_DIM + 3, 3 + 2*INSTANCE_DIM}
+	eye := mgl.Vec3{0, INSTANCE_DIM + 3, -(3 + 2*INSTANCE_DIM)}
 	zoomOut := float32(0.6)
 	eyeBack := mgl.Scale3D(zoomOut, zoomOut, zoomOut).Mul4x1(mgl.Vec4{eye[0], eye[1], eye[2], 1})
 	eye = mgl.Vec3{eyeBack[0], eyeBack[1], eyeBack[2]}
@@ -454,7 +479,8 @@ func main() {
 		t1 := time.Now()
 		for i := 0; i < N_INSTANCES; i++ {
 			x := i % N_INSTANCES
-			rotations[i] = mgl.Vec3{0, 0.1 * t, 0} // auto-rotate
+			rotations[i] = mgl.Vec3{0, -math.Pi / 2, 0}
+			// rotations[i] = mgl.Vec3{0, 0.1 * t, 0} // auto-rotate
 			// rotations[i] = mgl.Vec3{0, 2 * math.Pi * xCenter, 0} // mouse rotate
 			// yAmplitude := float32(math.Log(N_INSTANCES+1)) * aliveness
 			yAmplitude := float32(0.0)
@@ -464,8 +490,7 @@ func main() {
 		modelsFlat := flattenModels(models)
 
 		// modify/prepare point lights
-		updatePointLights(pointLights, t, xCenter)
-		fmt.Println(pointLights[0].Position[0])
+		updatePointLights(pointLights, dt_ms, t, xCenter)
 		pointLightsFlat := flattenPointLights(pointLights)
 		dt_prepare := float32(time.Since(t1).Nanoseconds()) / 1e6
 		if dt_prepare_avg == nil {
@@ -565,8 +590,8 @@ void main()
 	fragmentShaderSource = `
 #version 430
 
-#define BYPASS 0
-#define ORIGINAL_MIX 0.1
+#define BYPASS 1
+#define ORIGINAL_MIX 0.7
 #define PIXEL_SIZE 1
 #define ambient 0.05
 #define constAtt 1.0
