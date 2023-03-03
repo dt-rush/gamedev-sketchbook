@@ -97,7 +97,7 @@ func glInit() {
 	gl.Init()
 	gl.Viewport(0, 0, gl.Sizei(winWidth), gl.Sizei(winHeight))
 	// OPENGL FLAGS
-	gl.ClearColor(0.0, 0.1, 0.0, 1.0)
+	gl.ClearColor(0.0, 0.0, 0.0, 1.0)
 	gl.Enable(gl.DEPTH_TEST)
 	gl.DepthFunc(gl.LESS)
 	gl.Enable(gl.BLEND)
@@ -479,7 +479,7 @@ func main() {
 		t1 := time.Now()
 		for i := 0; i < N_INSTANCES; i++ {
 			x := i % N_INSTANCES
-			rotations[i] = mgl.Vec3{0, -math.Pi / 2, 0}
+			rotations[i] = mgl.Vec3{0, 0, 0}
 			// rotations[i] = mgl.Vec3{0, 0.1 * t, 0} // auto-rotate
 			// rotations[i] = mgl.Vec3{0, 2 * math.Pi * xCenter, 0} // mouse rotate
 			// yAmplitude := float32(math.Log(N_INSTANCES+1)) * aliveness
