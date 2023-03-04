@@ -99,6 +99,7 @@ func glInit() {
 	// OPENGL FLAGS
 	gl.ClearColor(0.0, 0.0, 0.0, 1.0)
 	gl.Enable(gl.DEPTH_TEST)
+	gl.Enable(gl.CULL_FACE)
 	gl.DepthFunc(gl.LESS)
 	gl.Enable(gl.BLEND)
 	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
@@ -212,7 +213,7 @@ const N_INSTANCES = INSTANCE_DIM * INSTANCE_DIM
 var flameAccum = sameriver.NewTimeAccumulator(500)
 
 func updatePointLights(pointLightCubes StaticModel, pointLights []PointLight, dt_ms float32, t float32, xCenter float32) {
-	const LIGHT_MODE = "circle"
+	const LIGHT_MODE = "flame"
 	var theta float32
 	var x, y, z float32
 	switch LIGHT_MODE {
@@ -229,7 +230,7 @@ func updatePointLights(pointLightCubes StaticModel, pointLights []PointLight, dt
 		theta = math.Pi * (1 - (xCenter+1)/2) // mousemovement
 		x = 5 * float32(math.Cos(float64(theta)))
 		y = 2*float32(math.Sin(float64(theta))) + 1
-		z = float32(5.0)
+		z = float32(2.0)
 	case "circle":
 		// move in circle
 		theta = math.Pi * t
@@ -288,10 +289,8 @@ func main() {
 	pointLightCubes := NewStaticModel("cube.obj", len(pointLights))
 	for i := range pointLights {
 		pointLightCubes.positions[i] = pointLights[i].Position
-		fmt.Printf("pointLightCubes.positions[%d] = %v\n", i, pointLightCubes.positions[i])
 		s := float32(0.01)
 		pointLightCubes.scales[i] = mgl.Vec3{s, s, s}
-		fmt.Printf("pointLightCubes.scales[%d] = %v\n", i, pointLightCubes.scales[i])
 	}
 
 	// load model
@@ -305,11 +304,9 @@ func main() {
 				1.2 * float32(-INSTANCE_DIM/2+i),
 				0,
 				1.2 * float32(-INSTANCE_DIM/2+j)}
-			fmt.Printf("amitabha.positions[%d] = %v\n", i, amitabha.positions[i])
 			amitabha.rotations[ix] = mgl.Vec3{0, math.Pi, 0}
 			s := float32(0.333)
 			amitabha.scales[ix] = mgl.Vec3{s, s, s}
-			fmt.Printf("amitabha.scales[%d] = %v\n", i, amitabha.scales[i])
 		}
 	}
 
@@ -421,17 +418,17 @@ func main() {
 			}
 		*/
 		t1 := time.Now()
+		// modify amitabhas
 		for i := 0; i < N_INSTANCES; i++ {
 			x := i % N_INSTANCES
 			// amitabha.rotations[i] = mgl.Vec3{0, math.Pi, 0} // front-facing
-			// amitabha.rotations[i] = mgl.Vec3{0, 0.1 * t, 0} // auto-rotate
-			// amitabha.rotations[i] = mgl.Vec3{0, math.Pi + math.Pi*xCenter, 0} // mouse rotate
+			// amitabha.rotations[i] = mgl.Vec3{0, math.Pi + 0.8*t, 0} // auto-rotate
+			amitabha.rotations[i] = mgl.Vec3{0, math.Pi + math.Pi*xCenter, 0} // mouse rotate
 			// yAmplitude := float32(math.Log(N_INSTANCES+1)) * aliveness
 			yAmplitude := float32(0.0)
 			amitabha.positions[i][1] = yAmplitude * float32(0.1*math.Sin(float64(2*math.Pi*(float32(x)/(INSTANCE_DIM/3.0)+t))))
 		}
-
-		// modify/prepare point lights
+		// modify point lights
 		updatePointLights(pointLightCubes, pointLights, dt_ms, t, xCenter)
 		pointLightsFlat := flattenPointLights(pointLights)
 		dt_prepare := float32(time.Since(t1).Nanoseconds()) / 1e6
@@ -442,9 +439,9 @@ func main() {
 		}
 
 		// buffer data
+		t2 := time.Now()
 		gl.BindBuffer(gl.TEXTURE_BUFFER, pointLightBuffer)
 		gl.BufferData(gl.TEXTURE_BUFFER, gl.Sizeiptr(len(pointLightsFlat)*floatSz), gl.Pointer(&pointLightsFlat[0]), gl.STATIC_DRAW)
-
 		// draw
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 		// gl.FrontFace(gl.CW)
@@ -453,11 +450,17 @@ func main() {
 		gl.Uniform1i(uniIsPointLightCube, gl.Int(1))
 		pointLightCubes.Draw()
 		window.GLSwap()
-
+		dt_draw := float32(time.Since(t2).Nanoseconds()) / 1e6
+		if dt_draw_avg == nil {
+			dt_draw_avg = &dt_draw
+		} else {
+			*dt_draw_avg = (*dt_draw_avg + dt_draw) / 2.0
+		}
 		time.Sleep(50 * time.Millisecond)
 	}
 	fmt.Printf("avg prepare ms: %f\n", *dt_prepare_avg)
 	fmt.Printf("avg draw ms: %f\n", *dt_draw_avg)
+	fmt.Printf("amitabha model stats: %v", amitabha.DumpStats())
 }
 
 const (
@@ -492,7 +495,7 @@ void main()
 #define BYPASS 0
 #define ORIGINAL_MIX 0.7
 #define PIXEL_SIZE 1
-#define ambient 0.1
+#define ambient 0.08
 #define constAtt 1.0
 
 in VS_FS_INTERFACE {

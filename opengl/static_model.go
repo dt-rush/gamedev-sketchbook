@@ -184,3 +184,10 @@ func (m *StaticModel) Draw() {
 		*m.draw_avg_ms = (*m.draw_avg_ms + dt_draw) / 2.0
 	}
 }
+
+func (m *StaticModel) DumpStats() map[string]float64 {
+	stats := make(map[string]float64)
+	stats["draw_avg_ms"] = *m.draw_avg_ms
+	stats["buffer_avg_ms"] = *m.buffer_avg_ms
+	return stats
+}

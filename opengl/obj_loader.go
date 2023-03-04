@@ -74,13 +74,10 @@ func LoadObj(filename string) (vertNormArr []gl.Float) {
 		panic(err)
 	}
 
+	fmt.Printf("%s has %d vertices\n", filename, len(vertIndices))
+
 	// populate the output float arr
 	vertNormArr = make([]gl.Float, 0)
-	/*
-		8/11/7 vertex 1 of triangle: vertex 8, normal 7
-		7/12/7 vertex 2 of triangle: vertex 7, normal 7
-		6/10/7 vertex 3 of triangle: vertex 6, normal 7
-	*/
 	for i := 0; i < len(vertIndices); i++ {
 		vIx := vertIndices[i]
 		nIx := normIndices[i]
