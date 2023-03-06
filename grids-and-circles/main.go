@@ -1,13 +1,22 @@
 package main
 
 import (
-	"fmt"
+	"os"
+	"runtime/pprof"
 
 	"github.com/dt-rush/sameriver/v3"
 )
 
 func main() {
-	fmt.Println("vim-go")
+	f, err := os.Create("profile.pprof")
+	if err != nil {
+		panic(err)
+	}
+	if err := pprof.StartCPUProfile(f); err != nil {
+		panic(err)
+	}
+	defer pprof.StopCPUProfile()
+
 	sameriver.RunGame(sameriver.GameInitSpec{
 		WindowSpec: sameriver.WindowSpec{
 			Title:      "grids and circles",

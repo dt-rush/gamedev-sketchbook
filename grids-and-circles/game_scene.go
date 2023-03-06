@@ -17,7 +17,7 @@ const gridx = 5
 const gridy = 5
 const radius = 100
 const playerRadius = 100
-const vel = 0.02
+const vel = 0.08
 
 var Logger = log.New(
 	os.Stdout,
@@ -251,6 +251,7 @@ func (s *GameScene) Draw(w *sdl.Window, r *sdl.Renderer) {
 		playerBox,
 		sdl.Color{255, 255, 255, 255})
 
+	// TODO: this doesn't change properly when the player resizes their box
 	s.drawRect(r,
 		playerPos.Add(sameriver.Vec2D{radius + playerRadius, 0}),
 		sameriver.Vec2D{5, 5},
@@ -278,6 +279,13 @@ func (s *GameScene) handleKeyboardState(kb []uint8) {
 	v.Y = vel * float64(
 		int8(kb[sdl.SCANCODE_W]|kb[sdl.SCANCODE_UP])-
 			int8(kb[sdl.SCANCODE_S]|kb[sdl.SCANCODE_DOWN]))
+	box := s.player.GetVec2D("Box")
+	box.X = box.X + 5*vel*float64(
+		int8(kb[sdl.SCANCODE_R])-
+			int8(kb[sdl.SCANCODE_F]))
+	box.Y = box.Y + 5*vel*float64(
+		int8(kb[sdl.SCANCODE_R])-
+			int8(kb[sdl.SCANCODE_F]))
 }
 
 func (s *GameScene) HandleKeyboardState(kb []uint8) {
