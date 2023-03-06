@@ -215,6 +215,7 @@ var flameAccum = sameriver.NewTimeAccumulator(500)
 func updatePointLights(pointLightCubes StaticModel, pointLights []PointLight, dt_ms float32, t float32, xCenter float32) {
 	const LIGHT_MODE = "flame"
 	var theta float32
+	// set the position in each switch branch of pointLights[0] (main point light)
 	var x, y, z float32
 	switch LIGHT_MODE {
 	case "off":
@@ -250,14 +251,37 @@ func updatePointLights(pointLightCubes StaticModel, pointLights []PointLight, dt
 	case "left":
 		x, y, z = -2, 1, 0
 	case "flame":
+		// set main light to same position as candle and color red
+		x, y, z = pointLights[1].Position[0], pointLights[1].Position[1], pointLights[1].Position[2]
 		pointLights[0].Color = mgl.Vec3{1.0, 0.0, 0}
-		x, y, z = 0, 0, 0.5
+		// stepped-time moving avg of 2 point lights, one red, the other candle
+		// with AttCoeff for each light being:
+		//
+		//     a + b*cos(pi*rand()) + c*cos(t)
+		//
+		intensity := func(a, b, c, f, t float32) float32 {
+			return a + b*(1+float32(math.Cos(math.Pi*rand.Float64())))/2 + c*float32(math.Cos(float64(f*t)))
+		}
+		mix := func(x, y, p gl.Float) gl.Float {
+			return p*x + (1-p)*y
+		}
+		setIntensity := func(light *PointLight, a, b, c, f, t float32, movingAvg bool) {
+			attCoeffPrime := gl.Float(intensity(a, b, c, f, t))
+			if movingAvg {
+				light.AttCoeff = mix(light.AttCoeff, attCoeffPrime, 0.5)
+			} else {
+				// just jump to the new value
+				light.AttCoeff = mix(light.AttCoeff, attCoeffPrime, 1.0)
+			}
+		}
 		if flameAccum.Tick(float64(dt_ms)) {
+			// each tick, set new timeaccum with a random period
 			flameAccum = sameriver.NewTimeAccumulator(100 * rand.Float64())
-			pointLights[0].AttCoeff = gl.Float(0.2 + 0.2*(1+math.Cos(math.Pi*rand.Float64()))/2)
+			setIntensity(&pointLights[0], 0.4, 0.4, 0.2, 0.2, t, true)
+			// repeat for candle
 			if len(pointLights) > 1 {
 				// consider candle as [1]
-				pointLights[1].AttCoeff = gl.Float(0.8 + 0.2*(1+math.Cos(math.Pi*rand.Float64()))/2)
+				setIntensity(&pointLights[1], 0.3, 0.4, 0.2, 0.3, t, false)
 			}
 		}
 	}
@@ -387,7 +411,8 @@ func main() {
 	// var aliveness float32
 	dt0 := time.Now()
 	for running {
-		t := float32(time.Since(t0).Seconds())
+		// t in seconds as float to 3 places
+		t := float32(time.Since(t0).Milliseconds()) / 1e3
 		dt_ms := float32(time.Since(dt0).Nanoseconds()) / 1e6
 		dt0 = time.Now()
 		for event = sdl.PollEvent(); event != nil; event =
@@ -460,7 +485,7 @@ func main() {
 	}
 	fmt.Printf("avg prepare ms: %f\n", *dt_prepare_avg)
 	fmt.Printf("avg draw ms: %f\n", *dt_draw_avg)
-	fmt.Printf("amitabha model stats: %v", amitabha.DumpStats())
+	fmt.Printf("amitabha model stats: %v\n", amitabha.DumpStats())
 }
 
 const (
