@@ -9,8 +9,6 @@ import "C"
 
 import (
 	"fmt"
-	"math"
-	"math/rand"
 	"runtime"
 	"strings"
 	"time"
@@ -22,6 +20,12 @@ import (
 
 	"github.com/dt-rush/sameriver/v3"
 )
+
+type PointLight struct {
+	Position mgl.Vec3
+	Color    mgl.Vec3
+	AttCoeff gl.Float
+}
 
 var f gl.Float
 var floatSz int = int(unsafe.Sizeof(f))
@@ -167,27 +171,6 @@ func LoadPointLights() (pointLights []PointLight) {
 			AttCoeff: 0.1,
 		},
 	}
-	const ADD_CANDLE = true
-	if ADD_CANDLE {
-		pointLights = append(pointLights, PointLight{
-			Position: mgl.Vec3{0, 0, 0.5},
-			Color:    mgl.Vec3{1, 0.8, 0.2},
-			AttCoeff: 1.0,
-		})
-	}
-	const ADD_RG_FRONTLIGHTS = false
-	if ADD_RG_FRONTLIGHTS {
-		pointLights = append(pointLights, PointLight{
-			Position: mgl.Vec3{-10, 0, 5},
-			Color:    mgl.Vec3{0.2, 1, 0.2},
-			AttCoeff: 0.01,
-		})
-		pointLights = append(pointLights, PointLight{
-			Position: mgl.Vec3{4, 0, 5},
-			Color:    mgl.Vec3{1.0, 0.2, 0.2},
-			AttCoeff: 0.01,
-		})
-	}
 	return pointLights
 }
 
@@ -207,91 +190,7 @@ func flattenPointLights(pointLights []PointLight) (flattened []float32) {
 	return flattened
 }
 
-const INSTANCE_DIM = 1
-const N_INSTANCES = INSTANCE_DIM * INSTANCE_DIM
-
 var flameAccum = sameriver.NewTimeAccumulator(500)
-
-func updatePointLights(pointLightCubes StaticModel, pointLights []PointLight, dt_ms float32, t float32, xCenter float32) {
-	const LIGHT_MODE = "circle"
-	var theta float32
-	// set the position in each switch branch of pointLights[0] (main point light)
-	var x, y, z float32
-	switch LIGHT_MODE {
-	case "off":
-		pointLights[0].AttCoeff = 100
-	case "mouse":
-		// move like the sun overhead along x axis
-		// x -> [-1, 1]                  // xCenter range on window
-		// (x+1)/2 -> [0, 1]
-		// 1 - (x+1)/2 -> [1, 0]
-		// pi*(1 - (x+1)/2) -> [pi, 0]   // theta
-		// sin(theta) -> [ 0...1...0]
-		// cos(theta) -> [-1...0...1]
-		theta = math.Pi * (1 - (xCenter+1)/2) // mousemovement
-		x = 5 * float32(math.Cos(float64(theta)))
-		y = 2*float32(math.Sin(float64(theta))) + 1
-		z = float32(2.0)
-	case "circle":
-		// move in circle
-		theta = math.Pi * t
-		x = 2 * float32(math.Cos(float64(theta)))
-		y = 1 // const height
-		z = 2 * float32(math.Sin(float64(theta)))
-	case "day":
-		theta = math.Pi * t / 2
-		x = 8 * float32(math.Cos(float64(theta)))
-		y = 8 * float32(math.Sin(float64(theta)))
-		// light completely attenuates when light is below horizon
-		if pointLights[0].Position[1] < 0 {
-			pointLights[0].AttCoeff = 10
-		} else {
-			pointLights[0].AttCoeff = 0.01
-		}
-	case "left":
-		x, y, z = -2, 1, 0
-	case "flame":
-		// set main light to same position as candle and color red
-		x, y, z = pointLights[1].Position[0], pointLights[1].Position[1], pointLights[1].Position[2]
-		pointLights[0].Color = mgl.Vec3{1.0, 0.0, 0}
-		// stepped-time moving avg of 2 point lights, one red, the other candle
-		// with AttCoeff for each light being:
-		//
-		//     a + b*cos(pi*rand()) + c*cos(t)
-		//
-		intensity := func(a, b, c, f, t float32) float32 {
-			return a + b*(1+float32(math.Cos(math.Pi*rand.Float64())))/2 + c*float32(math.Cos(float64(f*t)))
-		}
-		mix := func(x, y, p gl.Float) gl.Float {
-			return (1-p)*x + p*y
-		}
-		setIntensity := func(light *PointLight, a, b, c, f, t float32, movingAvg bool) {
-			attCoeffPrime := gl.Float(intensity(a, b, c, f, t))
-			if movingAvg {
-				light.AttCoeff = mix(light.AttCoeff, attCoeffPrime, 0.5)
-			} else {
-				// just jump to the new value
-				light.AttCoeff = mix(light.AttCoeff, attCoeffPrime, 1.0)
-			}
-		}
-		if flameAccum.Tick(float64(dt_ms)) {
-			// each tick, set new timeaccum with a random period
-			flameAccum = sameriver.NewTimeAccumulator(100 * rand.Float64())
-			setIntensity(&pointLights[0], 0.4, 0.4, 0.2, 0.2, t, true)
-			// repeat for candle
-			if len(pointLights) > 1 {
-				// consider candle as [1]
-				setIntensity(&pointLights[1], 0.3, 0.4, 0.2, 0.3, t, false)
-			}
-		}
-	}
-	pointLights[0].Position[0] = x
-	pointLights[0].Position[1] = y
-	pointLights[0].Position[2] = z
-	pointLightCubes.positions[0][0] = x
-	pointLightCubes.positions[0][1] = y
-	pointLightCubes.positions[0][2] = z
-}
 
 func main() {
 
@@ -310,29 +209,6 @@ func main() {
 
 	// set up point lights
 	pointLights := LoadPointLights()
-	pointLightCubes := NewStaticModel("cube.obj", len(pointLights))
-	for i := range pointLights {
-		pointLightCubes.positions[i] = pointLights[i].Position
-		s := float32(0.01)
-		pointLightCubes.scales[i] = mgl.Vec3{s, s, s}
-	}
-
-	// load model
-	amitabha := NewStaticModel("amitabha_smaller.obj", N_INSTANCES)
-
-	// set up transforms for each instance
-	for i := 0; i < INSTANCE_DIM; i++ {
-		for j := 0; j < INSTANCE_DIM; j++ {
-			ix := INSTANCE_DIM*i + j
-			amitabha.positions[ix] = mgl.Vec3{
-				1.2 * float32(-INSTANCE_DIM/2+i),
-				0,
-				1.2 * float32(-INSTANCE_DIM/2+j)}
-			amitabha.rotations[ix] = mgl.Vec3{0, math.Pi, 0}
-			s := float32(0.333)
-			amitabha.scales[ix] = mgl.Vec3{s, s, s}
-		}
-	}
 
 	// POINT LIGHTS TEXTURE BUFFER (variable size array trick)
 	var pointLightBuffer gl.Uint
@@ -353,9 +229,6 @@ func main() {
 	gl.TexBuffer(gl.TEXTURE_BUFFER, gl.RGBA32F, pointLightBuffer)
 	assertGLErr()
 
-	pointLightCubes.genVAO(program)
-	amitabha.genVAO(program)
-
 	uniPointLights := gl.GetUniformLocation(program, gl.GLString("pointLights"))
 	fmt.Printf("uniPointLights location: %d\n", uniPointLights)
 	gl.Uniform1i(uniPointLights, 0) // 0 matches TEXTURE0 above
@@ -364,9 +237,6 @@ func main() {
 	fmt.Printf("uniNumPointLights location: %d\n", uniNumPointLights)
 	gl.Uniform1i(uniNumPointLights, gl.Int(len(pointLights)))
 
-	uniIsPointLightCube := gl.GetUniformLocation(program, gl.GLString("isPointLightCube"))
-	fmt.Printf("uniIsPointLightCube location: %d\n", uniNumPointLights)
-
 	// PROJECTION,VIEW UNIFORMS
 	uniProjection := gl.GetUniformLocation(program, gl.GLString("projection"))
 	fmt.Printf("projection uniform location: %d\n", uniProjection)
@@ -374,7 +244,7 @@ func main() {
 	fmt.Printf("view uniform location: %d\n", uniView)
 
 	projection := mgl.Perspective(mgl.DegToRad(45.0), float32(winWidth)/winHeight, 0.1, 500.0)
-	eye := mgl.Vec3{0, INSTANCE_DIM + 3, 3 + 2*INSTANCE_DIM}
+	eye := mgl.Vec3{0, 20, 0}
 	zoomOut := float32(0.6)
 	eyeBack := mgl.Scale3D(zoomOut, zoomOut, zoomOut).Mul4x1(mgl.Vec4{eye[0], eye[1], eye[2], 1})
 	eye = mgl.Vec3{eyeBack[0], eyeBack[1], eyeBack[2]}
@@ -382,18 +252,13 @@ func main() {
 	up := mgl.Vec3{0, 1, 0}
 	view := mgl.LookAtV(eye, target, up)
 
-	fmt.Println()
-	printLiteralMat4("projection", projection)
-	printLiteralMat4("view", view)
-	printLiteralMat4("model", amitabha.models[0])
-
 	gl.UniformMatrix4fv(uniProjection, 1, gl.FALSE, (*gl.Float)(unsafe.Pointer(&projection[0])))
 	gl.UniformMatrix4fv(uniView, 1, gl.FALSE, (*gl.Float)(unsafe.Pointer(&view[0])))
 
 	var event sdl.Event
 	var running bool
 	running = true
-	t0 := time.Now()
+
 	var dt_prepare_avg *float32 = nil
 	var dt_draw_avg *float32 = nil
 	handleKBEvent := func(ke *sdl.KeyboardEvent) {
@@ -404,62 +269,23 @@ func main() {
 		}
 	}
 
-	var xCenter float32
-	// var yCenter float32
-	// var aliveness float32
-	dt0 := time.Now()
 	for running {
 		// t in seconds as float to 3 places
-		t := float32(time.Since(t0).Milliseconds()) / 1e3
-		dt_ms := float32(time.Since(dt0).Nanoseconds()) / 1e6
-		dt0 = time.Now()
+		// t := float32(time.Since(t0).Milliseconds()) / 1e3
+		// dt_ms := float32(time.Since(dt0).Nanoseconds()) / 1e6
 		for event = sdl.PollEvent(); event != nil; event =
 			sdl.PollEvent() {
 			switch e := event.(type) {
 			case *sdl.QuitEvent:
 				running = false
 			case *sdl.MouseMotionEvent:
-				// fmt.Printf("[%dms]MouseMotion\tid:%d\tx:%d\ty:%d\txrel:%d\tyrel:%d\n", t.Timestamp, t.Which, t.X, t.Y, t.XRel, t.YRel)
-				xCenter = -1.0 + 2*float32(e.X)/float32(winWidth)
-				// yCenter = -1.0 + 2*float32(e.Y)/float32(winHeight)
-				// distance from midpoint of screen
-				// r := math.Sqrt(float64((xCenter * xCenter) + (yCenter * yCenter)))
-				// sd := 0.1
-				// aliveness = float32(math.Exp(-(r*r)/(2*sd))/(sd*math.Sqrt(2*math.Pi))) / 3 // 3d normal distribution centered on screen
-				// if you reset mouseY to zero whenever there hasn't been a mouseevent in x ms for very small x, you
-				// get a detector for smooth continuous motion that snaps to zero - great as a mechanic for a meditation
-				// mode
+				// nothing
 			case *sdl.KeyboardEvent:
 				handleKBEvent(e)
 			}
 		}
 
-		// modify/prepare models
-		/*
-			for i, m := range amitabha.models {
-				amitabha.rotations[i] = 0.05 * float32(i) / float32(amitabha.nInstances)
-			}
-		*/
-		t1 := time.Now()
-		// modify amitabhas
-		for i := 0; i < N_INSTANCES; i++ {
-			x := i % N_INSTANCES
-			// amitabha.rotations[i] = mgl.Vec3{0, math.Pi, 0} // front-facing
-			// amitabha.rotations[i] = mgl.Vec3{0, math.Pi + 0.8*t, 0} // auto-rotate
-			amitabha.rotations[i] = mgl.Vec3{0, math.Pi + math.Pi*xCenter, 0} // mouse rotate
-			// yAmplitude := float32(math.Log(N_INSTANCES+1)) * aliveness
-			yAmplitude := float32(0.0)
-			amitabha.positions[i][1] = yAmplitude * float32(0.1*math.Sin(float64(2*math.Pi*(float32(x)/(INSTANCE_DIM/3.0)+t))))
-		}
-		// modify point lights
-		updatePointLights(pointLightCubes, pointLights, dt_ms, t, xCenter)
 		pointLightsFlat := flattenPointLights(pointLights)
-		dt_prepare := float32(time.Since(t1).Nanoseconds()) / 1e6
-		if dt_prepare_avg == nil {
-			dt_prepare_avg = &dt_prepare
-		} else {
-			*dt_prepare_avg = (*dt_prepare_avg + dt_prepare) / 2.0
-		}
 
 		// buffer data
 		t2 := time.Now()
@@ -468,10 +294,7 @@ func main() {
 		// draw
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 		// gl.FrontFace(gl.CW)
-		gl.Uniform1i(uniIsPointLightCube, gl.Int(0))
-		amitabha.Draw()
-		gl.Uniform1i(uniIsPointLightCube, gl.Int(1))
-		pointLightCubes.Draw()
+
 		window.GLSwap()
 		dt_draw := float32(time.Since(t2).Nanoseconds()) / 1e6
 		if dt_draw_avg == nil {
@@ -483,7 +306,6 @@ func main() {
 	}
 	fmt.Printf("avg prepare ms: %f\n", *dt_prepare_avg)
 	fmt.Printf("avg draw ms: %f\n", *dt_draw_avg)
-	fmt.Printf("amitabha model stats: %v\n", amitabha.DumpStats())
 }
 
 const (
@@ -515,7 +337,7 @@ void main()
 	fragmentShaderSource = `
 #version 430
 
-#define BYPASS 1
+#define BYPASS 0
 #define ORIGINAL_MIX 0.7
 #define PIXEL_SIZE 1
 #define ambient 0.08
@@ -555,43 +377,7 @@ void main()
 		totalLight += lightContribution;
 	}
 
-	// compute greyscale brightness
-	float brightness = (totalLight.r + totalLight.g + totalLight.b) / 3;
-
-	if (BYPASS == 0) {
-
-		vec2 xy = gl_FragCoord.xy;
-		vec2 pixel = mod(xy/PIXEL_SIZE, 4.0);
-
-		int x = int(pixel.x);
-		int y = int(pixel.y);
-
-		bool result = false;
-		if (x == 0 && y == 0) result = brightness > 16.0/17.0;
-		else if (x == 2 && y == 2) result = brightness > 15.0/17.0;
-		else if (x == 2 && y == 0) result = brightness > 14.0/17.0;
-		else if (x == 0 && y == 2) result = brightness > 13.0/17.0;
-		else if (x == 1 && y == 1) result = brightness > 12.0/17.0;
-		else if (x == 3 && y == 3) result = brightness > 11.0/17.0;
-		else if (x == 3 && y == 1) result = brightness > 10.0/17.0;
-		else if (x == 1 && y == 3) result = brightness > 09.0/17.0;
-		else if (x == 1 && y == 0) result = brightness > 08.0/17.0;
-		else if (x == 3 && y == 2) result = brightness > 07.0/17.0;
-		else if (x == 3 && y == 0) result = brightness > 06.0/17.0;
-		else if (x == 0 && y == 1) result =	brightness > 05.0/17.0;
-		else if (x == 1 && y == 2) result = brightness > 04.0/17.0;
-		else if (x == 2 && y == 3) result = brightness > 03.0/17.0;
-		else if (x == 2 && y == 1) result = brightness > 02.0/17.0;
-		else if (x == 0 && y == 3) result = brightness > 01.0/17.0;
-
-		vec3 onOff = vec3(result);
-		outColor = vec4(mix(onOff, totalLight, ORIGINAL_MIX), 1.0);
-	} else if (BYPASS == 1) {
-		outColor = vec4(vec3(totalLight), 1.0);
-	} else if (BYPASS == 2) {
-		outColor = vec4(1.0);
-	}
-
+   outColor = totalLight;	
 }
 `
 )
